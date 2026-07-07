@@ -1,6 +1,7 @@
 /**
  * Procedural ljud via Web Audio — inga externa filer.
- * Vinjett: modern pop-loop (synth, trummor, bas).
+ * Vinjett: episkt, mystiskt orkestertema (blås, stråkar, kör, pukor,
+ * skimrande klockor och cinematisk reverb) i en ~87 sekunder lång loop.
  */
 export class AudioEngine {
   constructor() {
@@ -62,7 +63,7 @@ export class AudioEngine {
     this.playIntroFanfare();
   }
 
-  /** Modern pop-vinjett — loopande synthpop (~32 s) */
+  /** Episk, mystisk orkestervinjett — loopande tema (~87 s) */
   playIntroFanfare() {
     if (!this.ctx || this.ctx.state !== "running") return;
     this.stopIntro();
@@ -70,114 +71,140 @@ export class AudioEngine {
 
     const ctx = this.ctx;
     const master = ctx.createGain();
-    master.gain.value = 0.9;
+    master.gain.value = 0.85;
     master.connect(this.musicGain);
     this.introNodes.push(master);
 
-    const BPM = 120;
+    // Cinematisk reverb (dry/wet-send) för rymd och episk känsla.
+    const reverbBus = ctx.createGain();
+    const dryGain = ctx.createGain();
+    dryGain.gain.value = 0.72;
+    const wetGain = ctx.createGain();
+    wetGain.gain.value = 0.36;
+    const convolver = ctx.createConvolver();
+    convolver.buffer = this._buildReverbImpulse(ctx, 3.4, 2.6);
+    reverbBus.connect(dryGain);
+    dryGain.connect(master);
+    reverbBus.connect(convolver);
+    convolver.connect(wetGain);
+    wetGain.connect(master);
+    this.introNodes.push(reverbBus, dryGain, wetGain, convolver);
+
+    // Skimrande delay för klockor/stjärnglitter.
+    const bellDelay = ctx.createDelay(1.5);
+    bellDelay.delayTime.value = 0.42;
+    const bellFeedback = ctx.createGain();
+    bellFeedback.gain.value = 0.38;
+    const bellWet = ctx.createGain();
+    bellWet.gain.value = 0.55;
+    bellDelay.connect(bellFeedback);
+    bellFeedback.connect(bellDelay);
+    bellDelay.connect(bellWet);
+    bellWet.connect(reverbBus);
+    this.introNodes.push(bellDelay, bellFeedback, bellWet);
+
+    const dest = reverbBus;
+    const noteFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+    const BPM = 66;
     const beat = 60 / BPM;
     const barBeats = 4;
-    const bars = 16;
+    const bars = 24;
     const dur = bars * barBeats * beat;
 
-    const chordRoots = [110, 87.31, 65.41, 98];
-    const chordTriads = [
-      [110, 130.81, 164.81],
-      [87.31, 110, 130.81],
-      [65.41, 82.41, 98],
-      [98, 123.47, 146.83],
+    // Dm - B♭ - F - C - Gm - Dm - B♭ - A (mystisk moll-progression, A löser till Dm i loopen)
+    const CHORDS = [
+      { bass: 38, triad: [50, 53, 57] },
+      { bass: 34, triad: [46, 50, 53] },
+      { bass: 29, triad: [53, 57, 60] },
+      { bass: 36, triad: [48, 52, 55] },
+      { bass: 31, triad: [55, 58, 62] },
+      { bass: 38, triad: [50, 53, 57] },
+      { bass: 34, triad: [46, 50, 53] },
+      { bass: 33, triad: [45, 49, 52] },
     ];
-    // Am F C G | Am F C G | F C G Am | F C G Am
-    const progression = [0, 1, 2, 3, 0, 1, 2, 3, 1, 2, 3, 0, 1, 2, 3, 0];
 
-    const melody = [
-      // Vers A
-      [0, 440, 0.5], [0.5, 523.25, 0.5], [1, 659.25, 0.75], [2, 587.33, 0.5],
-      [2.5, 523.25, 0.5], [3, 440, 1],
-      [4, 523.25, 0.5], [4.5, 659.25, 0.5], [5, 783.99, 0.75], [6, 659.25, 0.5],
-      [6.5, 587.33, 0.5], [7, 523.25, 1],
-      [8, 440, 0.5], [8.5, 440, 0.5], [9, 493.88, 0.5], [9.5, 523.25, 0.5],
-      [10, 587.33, 1], [11, 523.25, 0.5], [11.5, 440, 0.5],
-      [12, 392, 0.5], [12.5, 440, 0.5], [13, 523.25, 0.5], [13.5, 659.25, 0.5],
-      [14, 783.99, 1], [15, 659.25, 1],
-      // Vers B
-      [16, 523.25, 0.5], [16.5, 587.33, 0.5], [17, 659.25, 0.75], [18, 587.33, 0.5],
-      [18.5, 523.25, 0.5], [19, 493.88, 0.5], [19.5, 440, 0.5], [20, 440, 1],
-      [21, 493.88, 0.5], [21.5, 523.25, 0.5], [22, 587.33, 0.75], [23, 523.25, 0.5],
-      [23.5, 493.88, 0.5], [24, 440, 1],
-      [25, 440, 0.5], [25.5, 523.25, 0.5], [26, 659.25, 0.5], [26.5, 783.99, 0.5],
-      [27, 880, 1], [28, 783.99, 0.5], [28.5, 659.25, 0.5], [29, 587.33, 0.5], [29.5, 523.25, 0.5],
-      [30, 659.25, 1], [31, 523.25, 1],
-      // Bro (lägre register)
-      [32, 329.63, 0.75], [33, 392, 0.5], [33.5, 440, 0.5], [34, 493.88, 1],
-      [36, 440, 0.5], [36.5, 493.88, 0.5], [37, 523.25, 0.75], [38, 493.88, 0.5],
-      [38.5, 440, 0.5], [39, 392, 1],
-      [40, 349.23, 0.5], [40.5, 392, 0.5], [41, 440, 0.5], [41.5, 493.88, 0.5],
-      [42, 523.25, 1], [43, 493.88, 0.5], [43.5, 440, 0.5],
-      [44, 392, 0.5], [44.5, 440, 0.5], [45, 493.88, 0.5], [45.5, 587.33, 0.5],
-      [46, 659.25, 1.5], [47.5, 587.33, 0.5],
-      // Refrain / upplösning
-      [48, 440, 0.5], [48.5, 523.25, 0.5], [49, 659.25, 0.75], [50, 783.99, 0.5],
-      [50.5, 880, 0.5], [51, 987.77, 1],
-      [52, 880, 0.5], [52.5, 783.99, 0.5], [53, 659.25, 0.75], [54, 587.33, 0.5],
-      [54.5, 523.25, 0.5], [55, 440, 1],
-      [56, 523.25, 0.5], [56.5, 659.25, 0.5], [57, 783.99, 0.5], [57.5, 880, 0.5],
-      [58, 783.99, 0.5], [58.5, 659.25, 0.5], [59, 587.33, 0.5], [59.5, 523.25, 0.5],
-      [60, 659.25, 0.75], [61, 783.99, 0.75], [62, 880, 0.5], [62.5, 987.77, 0.5],
-      [63, 880, 2],
+    // Mjuk, mystisk temafras (intro/uppbyggnad) — 8 takter.
+    const phraseTheme = [
+      [0, 62, 2], [2, 65, 1], [3, 69, 1], [4, 72, 2], [6, 70, 1], [7, 69, 1],
+      [8, 65, 2], [10, 67, 1], [11, 69, 1], [12, 65, 3],
+      [16, 60, 2], [18, 62, 1], [19, 65, 1], [20, 69, 2], [22, 67, 1], [23, 65, 1],
+      [24, 62, 2], [26, 60, 1], [27, 58, 1], [28, 57, 4],
     ];
+    // Stort blås-tema för klimax — 4 takter.
+    const phraseClimax = [
+      [0, 74, 2], [2, 77, 1], [3, 74, 1], [4, 79, 3],
+      [8, 77, 1], [9, 74, 1], [10, 72, 2],
+      [12, 74, 1], [13, 72, 1], [14, 69, 2],
+    ];
+    // Nedtonande avslutningsfras som leder tillbaka in i loopen.
+    const phraseOutro = [[0, 69, 2], [4, 65, 2], [8, 62, 2], [12, 57, 4]];
+
+    const playPhrase = (phrase, startBar, vol, useBrass) => {
+      const base = (b) => startBar * barBeats * beat + b * beat;
+      for (const [b, note, lenBeats] of phrase) {
+        const time = base(b);
+        const f = noteFreq(note);
+        const d = lenBeats * beat;
+        if (useBrass) this._brass(ctx, dest, time, f, d, vol);
+        else this._solo(ctx, dest, time, f, d, vol);
+      }
+    };
 
     const playLoop = () => {
       if (!this.introPlaying || !this.ctx) return;
-      const t0 = ctx.currentTime + 0.06;
-      const totalBeats = bars * barBeats;
+      const t0 = ctx.currentTime + 0.08;
 
-      for (let b = 0; b < totalBeats; b++) {
-        const bt = t0 + b * beat;
-        this._popKick(ctx, master, bt, 0.55);
-        if (b % barBeats === 1 || b % barBeats === 3) {
-          this._popSnare(ctx, master, bt, 0.22);
-        }
-        this._popHat(ctx, master, bt, 0.07);
-        this._popHat(ctx, master, bt + beat * 0.5, 0.05);
-        if (b % 8 === 7) {
-          this._popHat(ctx, master, bt + beat * 0.25, 0.09);
-          this._popHat(ctx, master, bt + beat * 0.75, 0.09);
-        }
-      }
+      this._drone(ctx, dest, t0, noteFreq(26), dur, 0.045);
+      this._drone(ctx, dest, t0, noteFreq(38), dur, 0.055);
 
       for (let bar = 0; bar < bars; bar++) {
-        const ci = progression[bar];
-        const root = chordRoots[ci];
+        const chord = CHORDS[bar % 8];
         const bt = t0 + bar * barBeats * beat;
         const barDur = barBeats * beat;
-        this._popBass(ctx, master, bt, root, barDur, 0.32);
-        this._popBass(ctx, master, bt + beat * 2, root * 1.5, beat * 1.5, 0.18);
-        if (bar >= 8) {
-          this._popBass(ctx, master, bt + beat * 3, root * 2, beat * 0.9, 0.12);
+        const isIntro = bar < 8;
+        const isBuild = bar >= 8 && bar < 16;
+        const isClimax = bar >= 16 && bar < 20;
+        const sectionVol = isIntro
+          ? 0.4
+          : isBuild
+            ? 0.4 + ((bar - 8) / 8) * 0.5
+            : isClimax
+              ? 1
+              : Math.max(0.22, 1 - ((bar - 20) / 4) * 0.78);
+
+        this._stringsPad(ctx, dest, bt, noteFreq(chord.bass), barDur * 1.05, 0.1 * sectionVol);
+        for (const n of chord.triad) {
+          this._stringsPad(ctx, dest, bt, noteFreq(n), barDur * 1.05, 0.09 * sectionVol);
+          this._choirPad(ctx, dest, bt, noteFreq(n + 12), barDur * 1.1, (isIntro ? 0.045 : 0.08) * sectionVol);
         }
-        for (const f of chordTriads[ci]) {
-          this._popPad(ctx, master, bt, f, barDur, bar >= 8 && bar < 12 ? 0.09 : 0.07);
+
+        if (!isIntro) {
+          this._timpani(ctx, dest, bt, 0.5 * sectionVol);
+          this._timpani(ctx, dest, bt + beat * 2, 0.35 * sectionVol);
         }
-        for (let i = 0; i < barBeats * 2; i++) {
-          const arpT = bt + i * beat * 0.5;
-          const note = chordTriads[ci][i % 3];
-          this._popArp(ctx, master, arpT, note * 2, beat * 0.4, 0.045);
+
+        if (isIntro || bar >= 20) {
+          [0, 1.5, 2.5].forEach((offBeat, i) => {
+            const n = chord.triad[i % chord.triad.length] + 12;
+            this._bellSparkle(ctx, dest, bellDelay, bt + offBeat * beat, noteFreq(n), 0.08 * sectionVol);
+          });
+        } else {
+          for (let i = 0; i < barBeats * 2; i++) {
+            const n = chord.triad[i % 3] + 12;
+            this._bellSparkle(ctx, dest, bellDelay, bt + i * beat * 0.5, noteFreq(n), 0.05 * sectionVol);
+          }
+        }
+
+        if (bar === 16 || bar === 20) {
+          this._cymbalSwell(ctx, dest, bt - beat, barBeats * beat * 1.3, 0.5);
         }
       }
 
-      for (const [startBeat, freq, lenBeat] of melody) {
-        const vol = startBeat >= 48 ? 0.18 : startBeat >= 32 ? 0.13 : 0.16;
-        this._popLead(ctx, master, t0 + startBeat * beat, freq, lenBeat * beat, vol);
-      }
-
-      for (let bar = 12; bar < 16; bar++) {
-        const ci = progression[bar];
-        const bt = t0 + bar * barBeats * beat;
-        for (const f of chordTriads[ci]) {
-          this._popPad(ctx, master, bt, f * 2, barBeats * beat, 0.04);
-        }
-      }
+      playPhrase(phraseTheme, 0, 0.09, false);
+      playPhrase(phraseTheme, 8, 0.17, true);
+      playPhrase(phraseClimax, 16, 0.25, true);
+      playPhrase(phraseOutro, 20, 0.08, false);
 
       this.introLoopTimer = setTimeout(() => {
         if (this.introPlaying) playLoop();
@@ -187,151 +214,240 @@ export class AudioEngine {
     playLoop();
   }
 
-  _popArp(ctx, dest, time, freq, dur, vol) {
+  _buildReverbImpulse(ctx, duration = 3, decay = 3) {
+    const rate = ctx.sampleRate;
+    const length = Math.max(1, (rate * duration) | 0);
+    const impulse = ctx.createBuffer(2, length, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = impulse.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+      }
+    }
+    return impulse;
+  }
+
+  _drone(ctx, dest, time, freq, dur, vol) {
     const osc = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
     filter.type = "lowpass";
-    filter.frequency.value = 2400;
-    osc.type = "triangle";
+    filter.frequency.value = 400;
+    osc.type = "sine";
+    osc2.type = "sine";
     osc.frequency.setValueAtTime(freq, time);
+    osc2.frequency.setValueAtTime(freq * 1.005, time);
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.frequency.value = 0.05;
+    lfoGain.gain.value = 120;
+    lfo.connect(lfoGain);
+    lfoGain.connect(filter.frequency);
     gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.linearRampToValueAtTime(vol, time + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    gain.gain.linearRampToValueAtTime(vol, time + 4);
+    gain.gain.setValueAtTime(vol, time + Math.max(4.1, dur - 4));
+    gain.gain.linearRampToValueAtTime(0.0001, time + dur);
     osc.connect(filter);
+    osc2.connect(filter);
     filter.connect(gain);
     gain.connect(dest);
     osc.start(time);
-    osc.stop(time + dur + 0.02);
-    this.introNodes.push(osc, gain, filter);
+    osc2.start(time);
+    lfo.start(time);
+    const stopT = time + dur + 0.1;
+    osc.stop(stopT);
+    osc2.stop(stopT);
+    lfo.stop(stopT);
+    this.introNodes.push(osc, osc2, gain, filter, lfo, lfoGain);
   }
 
-  _popKick(ctx, dest, time, vol) {
+  _stringsPad(ctx, dest, time, freq, dur, vol) {
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 1600;
+    filter.Q.value = 0.3;
+    const vibrato = ctx.createOscillator();
+    const vibratoGain = ctx.createGain();
+    vibrato.frequency.value = 4.5;
+    vibratoGain.gain.value = 2.2;
+    vibrato.connect(vibratoGain);
+    const oscs = [];
+    for (const det of [-6, 0, 6]) {
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(freq, time);
+      osc.detune.setValueAtTime(det, time);
+      vibratoGain.connect(osc.detune);
+      osc.connect(filter);
+      oscs.push(osc);
+    }
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.linearRampToValueAtTime(vol, time + 0.6);
+    gain.gain.setValueAtTime(vol, time + Math.max(0.7, dur - 0.6));
+    gain.gain.linearRampToValueAtTime(0.0001, time + dur);
+    filter.connect(gain);
+    gain.connect(dest);
+    vibrato.start(time);
+    oscs.forEach((o) => o.start(time));
+    const stopT = time + dur + 0.1;
+    vibrato.stop(stopT);
+    oscs.forEach((o) => o.stop(stopT));
+    this.introNodes.push(gain, filter, vibrato, vibratoGain, ...oscs);
+  }
+
+  _choirPad(ctx, dest, time, freq, dur, vol) {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, time);
+    const gain = ctx.createGain();
+    const f1 = ctx.createBiquadFilter();
+    f1.type = "bandpass";
+    f1.frequency.value = 700;
+    f1.Q.value = 4;
+    const f2 = ctx.createBiquadFilter();
+    f2.type = "bandpass";
+    f2.frequency.value = 1200;
+    f2.Q.value = 5;
+    osc.connect(f1);
+    osc.connect(f2);
+    f1.connect(gain);
+    f2.connect(gain);
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.linearRampToValueAtTime(vol, time + 1.2);
+    gain.gain.setValueAtTime(vol, time + Math.max(1.3, dur - 1));
+    gain.gain.linearRampToValueAtTime(0.0001, time + dur);
+    gain.connect(dest);
+    osc.start(time);
+    osc.stop(time + dur + 0.1);
+    this.introNodes.push(osc, gain, f1, f2);
+  }
+
+  _timpani(ctx, dest, time, vol) {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = "sine";
-    osc.frequency.setValueAtTime(150, time);
-    osc.frequency.exponentialRampToValueAtTime(40, time + 0.12);
-    gain.gain.setValueAtTime(vol, time);
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.18);
+    osc.frequency.setValueAtTime(95, time);
+    osc.frequency.exponentialRampToValueAtTime(58, time + 0.35);
+    gain.gain.setValueAtTime(Math.max(vol, 0.0001), time);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.6);
     osc.connect(gain);
     gain.connect(dest);
     osc.start(time);
-    osc.stop(time + 0.2);
+    osc.stop(time + 0.65);
     this.introNodes.push(osc, gain);
   }
 
-  _popSnare(ctx, dest, time, vol) {
-    const bufLen = (ctx.sampleRate * 0.08) | 0;
-    const buffer = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
-    const nGain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    filter.type = "highpass";
-    filter.frequency.value = 900;
-    nGain.gain.setValueAtTime(vol, time);
-    nGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.1);
-    noise.connect(filter);
-    filter.connect(nGain);
-    nGain.connect(dest);
-    noise.start(time);
-    noise.stop(time + 0.12);
-
-    const tone = ctx.createOscillator();
-    const tGain = ctx.createGain();
-    tone.type = "triangle";
-    tone.frequency.setValueAtTime(180, time);
-    tGain.gain.setValueAtTime(vol * 0.4, time);
-    tGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
-    tone.connect(tGain);
-    tGain.connect(dest);
-    tone.start(time);
-    tone.stop(time + 0.08);
-    this.introNodes.push(noise, nGain, filter, tone, tGain);
+  _bellSparkle(ctx, dest, delayNode, time, freq, vol) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, time);
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.linearRampToValueAtTime(vol, time + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + 1.1);
+    osc.connect(gain);
+    gain.connect(dest);
+    gain.connect(delayNode);
+    osc.start(time);
+    osc.stop(time + 1.2);
+    this.introNodes.push(osc, gain);
   }
 
-  _popHat(ctx, dest, time, vol) {
-    const bufLen = (ctx.sampleRate * 0.04) | 0;
+  _cymbalSwell(ctx, dest, time, dur, vol) {
+    const bufLen = Math.max(1, (ctx.sampleRate * dur) | 0);
     const buffer = ctx.createBuffer(1, bufLen, ctx.sampleRate);
     const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
+    for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
     const noise = ctx.createBufferSource();
     noise.buffer = buffer;
-    const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
-    filter.type = "highpass";
-    filter.frequency.value = 6000;
-    gain.gain.setValueAtTime(vol, time);
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.035);
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(1200, time);
+    filter.frequency.linearRampToValueAtTime(5000, time + dur * 0.6);
+    filter.Q.value = 0.7;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.linearRampToValueAtTime(vol, time + dur * 0.55);
+    gain.gain.linearRampToValueAtTime(0.0001, time + dur);
     noise.connect(filter);
     filter.connect(gain);
     gain.connect(dest);
     noise.start(time);
-    noise.stop(time + 0.04);
+    noise.stop(time + dur + 0.05);
     this.introNodes.push(noise, gain, filter);
   }
 
-  _popBass(ctx, dest, time, freq, dur, vol) {
+  _brass(ctx, dest, time, freq, dur, vol) {
     const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    const osc2 = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc2.type = "sawtooth";
+    osc.frequency.setValueAtTime(freq, time);
+    osc2.frequency.setValueAtTime(freq, time);
+    osc2.detune.setValueAtTime(8, time);
     const filter = ctx.createBiquadFilter();
     filter.type = "lowpass";
-    filter.frequency.value = 600;
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(freq, time);
+    filter.Q.value = 1.5;
+    filter.frequency.setValueAtTime(600, time);
+    filter.frequency.linearRampToValueAtTime(2600, time + Math.min(0.12, dur * 0.3));
+    filter.frequency.setValueAtTime(2600, time + dur * 0.6);
+    filter.frequency.linearRampToValueAtTime(1200, time + dur);
+    const vibrato = ctx.createOscillator();
+    const vibratoGain = ctx.createGain();
+    vibrato.frequency.value = 5.5;
+    vibratoGain.gain.value = 3.5;
+    vibrato.connect(vibratoGain);
+    vibratoGain.connect(osc.detune);
+    vibratoGain.connect(osc2.detune);
+    const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.linearRampToValueAtTime(vol, time + 0.02);
+    gain.gain.linearRampToValueAtTime(vol, time + 0.06);
     gain.gain.setValueAtTime(vol * 0.85, time + dur * 0.7);
     gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
     osc.connect(filter);
+    osc2.connect(filter);
     filter.connect(gain);
     gain.connect(dest);
     osc.start(time);
-    osc.stop(time + dur + 0.05);
-    this.introNodes.push(osc, gain, filter);
+    osc2.start(time);
+    vibrato.start(time + 0.08);
+    const stopT = time + dur + 0.05;
+    osc.stop(stopT);
+    osc2.stop(stopT);
+    vibrato.stop(stopT);
+    this.introNodes.push(osc, osc2, filter, vibrato, vibratoGain, gain);
   }
 
-  _popPad(ctx, dest, time, freq, dur, vol) {
+  _solo(ctx, dest, time, freq, dur, vol) {
     const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.value = 1400;
     osc.type = "triangle";
     osc.frequency.setValueAtTime(freq, time);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = freq * 2;
+    filter.Q.value = 2.5;
+    const vibrato = ctx.createOscillator();
+    const vibratoGain = ctx.createGain();
+    vibrato.frequency.value = 4.2;
+    vibratoGain.gain.value = 4;
+    vibrato.connect(vibratoGain);
+    vibratoGain.connect(osc.detune);
+    const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.0001, time);
     gain.gain.linearRampToValueAtTime(vol, time + 0.15);
+    gain.gain.setValueAtTime(vol * 0.8, time + dur * 0.75);
     gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
     osc.connect(filter);
     filter.connect(gain);
     gain.connect(dest);
     osc.start(time);
-    osc.stop(time + dur + 0.05);
-    this.introNodes.push(osc, gain, filter);
-  }
-
-  _popLead(ctx, dest, time, freq, dur, vol) {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(3200, time);
-    filter.frequency.exponentialRampToValueAtTime(1800, time + dur);
-    osc.type = "square";
-    osc.frequency.setValueAtTime(freq, time);
-    gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.linearRampToValueAtTime(vol, time + 0.025);
-    gain.gain.setValueAtTime(vol * 0.75, time + dur * 0.6);
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(dest);
-    osc.start(time);
-    osc.stop(time + dur + 0.05);
-    this.introNodes.push(osc, gain, filter);
+    vibrato.start(time + 0.1);
+    const stopT = time + dur + 0.05;
+    osc.stop(stopT);
+    vibrato.stop(stopT);
+    this.introNodes.push(osc, filter, vibrato, vibratoGain, gain);
   }
 
   /** Klassiskt arkadljud när boss dör */

@@ -27,7 +27,7 @@ export class UI {
         <p class="subtitle">Orbiter × TwinBee × Hive Overmind</p>
         <button class="btn primary" data-action="hangar">Hangar</button>
         <button class="btn" data-action="mission">Starta uppdrag</button>
-        <button class="btn" data-action="editor">Bankeditor</button>
+        <button class="btn" data-action="editor">Baneditor</button>
         <button class="btn" data-action="play-custom">Spela egen bana</button>
         <button class="btn" data-action="enemy-designer">Fiendedesign</button>
         <p style="margin-top:24px;color:var(--muted);font-size:0.85rem;">
