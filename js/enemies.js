@@ -1,6 +1,6 @@
 import { ENEMY_TYPES } from "./data.js";
 import { createProjectile } from "./player.js";
-import { sampleRidge, getPlayBounds } from "./terrain.js";
+import { sampleRidge, getPlayBounds, clampToTunnel } from "./terrain.js";
 
 let nextId = 1;
 
@@ -42,6 +42,19 @@ export function spawnEnemy(type, x, y) {
 
 export function spawnCustomEnemy(runtimeDef, x, y) {
   return buildEnemyFromDef(runtimeDef, "custom", x, y);
+}
+
+/** Väljer den levande spelare som ligger närmast punkten (x, y). Stödjer både en enda Player och en array. */
+function nearestPlayer(players, x, y) {
+  const list = Array.isArray(players) ? players : [players];
+  let best = null;
+  let bestDist = Infinity;
+  for (const p of list) {
+    if (!p || !p.alive) continue;
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < bestDist) { bestDist = d; best = p; }
+  }
+  return best || list[0];
 }
 
 function fireEnemyShot(e, player, projectiles, { speed = 360, color, aim } = {}) {
@@ -224,15 +237,17 @@ export class EnemyDirector {
     this.isCustom = !!stage.isCustom;
   }
 
-  update(dt, scrollX, player, projectiles, onEnemyDestroyed = null) {
+  update(dt, scrollX, players, projectiles, onEnemyDestroyed = null) {
     this.scrollX = scrollX;
+    const playerList = (Array.isArray(players) ? players : [players]).filter(Boolean);
+    const anchor = playerList.find((p) => p.alive) || playerList[0];
 
     if (this.boss && this.boss.hp > 0) {
-      this._updateBoss(dt, player, projectiles);
+      this._updateBoss(dt, playerList, projectiles);
       if (this.level >= 3 || (this.isCustom && this.stage.groundCannons?.length)) {
-        updateGroundCannons(this.stage.groundCannons, dt, player, projectiles, scrollX, this.viewWidth);
+        updateGroundCannons(this.stage.groundCannons, dt, playerList, projectiles, scrollX, this.viewWidth);
       }
-      this._movePickups(dt, player);
+      this._movePickups(dt, playerList);
       return;
     }
 
@@ -241,6 +256,7 @@ export class EnemyDirector {
       if (scrollX >= enc.x - this.viewWidth * 0.3) {
         this.spawnedIds.add(i);
         const group = enc.spawn(this.stage, enc.x, this.viewWidth);
+        for (const e of group) e.y = clampToTunnel(e.x, e.y, e.radius, this.stage);
         this.enemies.push(...group);
       }
     });
@@ -257,22 +273,23 @@ export class EnemyDirector {
       this.boss.arenaX = arenaX;
     }
 
-    this._updateEnemies(dt, player, projectiles, onEnemyDestroyed);
-    this.enemies = this.enemies.filter((e) => e.hp > 0);
+    this._updateEnemies(dt, playerList, projectiles, onEnemyDestroyed);
+    const cullX = scrollX - 500;
+    this.enemies = this.enemies.filter((e) => e.hp > 0 && (e.fromRear || e.x > cullX));
 
     if (this.level >= 2) {
       this.rearTimer -= dt;
       if (this.rearTimer <= 0) {
         this.rearTimer = 2.8 + Math.random() * 2.2;
-        this._spawnFromRear(scrollX, player);
+        this._spawnFromRear(scrollX, anchor);
       }
     }
 
     if (this.level >= 3 || (this.isCustom && this.stage.groundCannons?.length)) {
-      updateGroundCannons(this.stage.groundCannons, dt, player, projectiles, scrollX, this.viewWidth);
+      updateGroundCannons(this.stage.groundCannons, dt, playerList, projectiles, scrollX, this.viewWidth);
     }
 
-    this._movePickups(dt, player);
+    this._movePickups(dt, playerList);
   }
 
   _spawnFromRear(scrollX, player) {
@@ -288,24 +305,33 @@ export class EnemyDirector {
     this.enemies.push(e);
   }
 
-  _resolveShipCollision(e, player, onEnemyDestroyed) {
-    if (e.hp <= 0 || !player.alive) return;
-    if (Math.hypot(player.x - e.x, player.y - e.y) >= e.radius + player.radius) return;
-    const dmg = e.kamikaze ? e.damage : Math.max(10, Math.round(e.damage * 0.75));
-    if (!player.takeDamage(dmg)) return;
-    e.hp = 0;
-    onEnemyDestroyed?.(e);
+  _resolveShipCollision(e, players, onEnemyDestroyed) {
+    if (e.hp <= 0) return;
+    const list = Array.isArray(players) ? players : [players];
+    for (const player of list) {
+      if (!player || !player.alive) continue;
+      if (Math.hypot(player.x - e.x, player.y - e.y) >= e.radius + player.radius) continue;
+      const dmg = e.kamikaze ? e.damage : Math.max(10, Math.round(e.damage * 0.75));
+      if (!player.takeDamage(dmg)) continue;
+      e.hp = 0;
+      onEnemyDestroyed?.(e, player);
+      return;
+    }
   }
 
-  _updateEnemies(dt, player, projectiles, onEnemyDestroyed) {
+  _updateEnemies(dt, players, projectiles, onEnemyDestroyed) {
+    const playerList = Array.isArray(players) ? players : [players];
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
       e.stun = Math.max(0, e.stun - dt);
       if (e.stun > 0) continue;
 
+      const player = nearestPlayer(playerList, e.x, e.y);
+
       if (e.fromRear) {
         e.x += e.rearSpeed * dt;
         e.y += (player.y - e.y) * dt * 0.85;
+        e.y = clampToTunnel(e.x, e.y, e.radius, this.stage);
         if (e.shoots && !e.kamikaze) {
           e.fireCooldown -= dt;
           if (e.fireCooldown <= 0 && e.x < player.x + 30 && e.x > player.x - 350) {
@@ -316,18 +342,21 @@ export class EnemyDirector {
             }));
           }
         }
-        this._resolveShipCollision(e, player, onEnemyDestroyed);
+        this._resolveShipCollision(e, playerList, onEnemyDestroyed);
         continue;
       }
 
       if (e.carrier) {
         e.x -= e.speed * dt * 0.7;
+        e.y = clampToTunnel(e.x, e.y, e.radius, this.stage);
         e.spawnTimer = (e.spawnTimer || 2) - dt;
-        if (e.spawnTimer <= 0) {
+        e.spawnCount = e.spawnCount || 0;
+        if (e.spawnTimer <= 0 && e.spawnCount < 5 && this.enemies.length < 60) {
           e.spawnTimer = 2.5;
+          e.spawnCount++;
           this.enemies.push(spawnEnemy("swarm", e.x - 10, e.y + (Math.random() - 0.5) * 40));
         }
-        this._resolveShipCollision(e, player, onEnemyDestroyed);
+        this._resolveShipCollision(e, playerList, onEnemyDestroyed);
         continue;
       }
 
@@ -337,14 +366,19 @@ export class EnemyDirector {
           e.fireCooldown = e.weaponPattern === "rapid" ? 1.7 : 3.2;
           fireEnemyShot(e, player, projectiles, { speed: 340, color: "#ff66cc", aim: Math.PI });
         }
-        this._resolveShipCollision(e, player, onEnemyDestroyed);
+        this._resolveShipCollision(e, playerList, onEnemyDestroyed);
         continue;
       }
 
       if (e.kamikaze) {
-        e.x -= e.speed * dt;
-        e.y += Math.sin(e.x * 0.025) * 50 * dt;
-        this._resolveShipCollision(e, player, onEnemyDestroyed);
+        const dx = player.x - e.x;
+        const dy = player.y - e.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        e.x += (dx / dist) * e.speed * dt;
+        e.y += (dy / dist) * e.speed * dt;
+        e.facingAngle = Math.atan2(dy, dx) + Math.PI;
+        e.y = clampToTunnel(e.x, e.y, e.radius, this.stage);
+        this._resolveShipCollision(e, playerList, onEnemyDestroyed);
         continue;
       }
 
@@ -352,18 +386,21 @@ export class EnemyDirector {
         e.spinAngle += dt * 4;
         e.x -= e.speed * dt * 0.6;
         e.y += Math.sin(e.spinAngle) * 90 * dt;
+        e.y = clampToTunnel(e.x, e.y, e.radius, this.stage);
       } else if (e.sniper) {
         e.x -= e.speed * dt * 0.5;
+        e.y = clampToTunnel(e.x, e.y, e.radius, this.stage);
         e.fireCooldown -= dt;
         if (e.fireCooldown <= 0 && e.x > player.x + 80 && e.x < player.x + 520) {
           e.fireCooldown = e.weaponPattern === "rapid" ? 2.3 : 4.2;
           fireEnemyShot(e, player, projectiles, { speed: 480, color: "#44ffcc" });
         }
-        this._resolveShipCollision(e, player, onEnemyDestroyed);
+        this._resolveShipCollision(e, playerList, onEnemyDestroyed);
         continue;
       } else {
         e.x -= e.speed * dt * 0.82;
         if (e.type === "swarm" || e.sine) e.y += Math.sin(e.x * 0.03 + e.id) * 55 * dt;
+        e.y = clampToTunnel(e.x, e.y, e.radius, this.stage);
       }
 
       if (!e.shoots) continue;
@@ -377,7 +414,7 @@ export class EnemyDirector {
         fireEnemyShot(e, player, projectiles, { speed: e.type === "beetle" ? 260 : 360 });
       }
 
-      this._resolveShipCollision(e, player, onEnemyDestroyed);
+      this._resolveShipCollision(e, playerList, onEnemyDestroyed);
     }
   }
 
@@ -390,13 +427,16 @@ export class EnemyDirector {
     this.capsules.push({ x, y, vx: -40, bob: Math.random() * 6.28, kind });
   }
 
-  _movePickups(dt, player) {
+  _movePickups(dt, players) {
+    const playerList = (Array.isArray(players) ? players : [players]).filter(Boolean);
     const list = this.twinBeeMode ? this.bells : this.capsules;
     for (const c of list) {
       c.x += c.vx * dt;
       c.bob += dt * 4;
       const cy = c.y + Math.sin(c.bob) * 4;
-      if (Math.hypot(player.x - c.x, player.y - cy) < player.radius + 14) {
+      for (const player of playerList) {
+        if (!player.alive) continue;
+        if (Math.hypot(player.x - c.x, player.y - cy) >= player.radius + 14) continue;
         if (this.twinBeeMode) {
           player.collectPower();
         } else if (c.kind === "energy") {
@@ -405,6 +445,7 @@ export class EnemyDirector {
           player.collectPower();
         }
         c.dead = true;
+        break;
       }
     }
     if (this.twinBeeMode) {
@@ -421,9 +462,11 @@ export class EnemyDirector {
     this.spawnPickup(enemy.x, enemy.y, player);
   }
 
-  _updateBoss(dt, player, projectiles) {
+  _updateBoss(dt, players, projectiles) {
     const b = this.boss;
     if (!b || b.hp <= 0) return;
+    const playerList = (Array.isArray(players) ? players : [players]).filter(Boolean);
+    const player = nearestPlayer(playerList, b.x, b.y);
 
     b.timer -= dt;
     b.animPhase = (b.animPhase || 0) + dt;
@@ -553,8 +596,10 @@ export class EnemyDirector {
       }
     }
 
-    if (Math.hypot(player.x - b.x, player.y - b.y) < b.radius + player.radius) {
-      player.takeDamage(20 * dt);
+    for (const pl of playerList) {
+      if (pl.alive && Math.hypot(pl.x - b.x, pl.y - b.y) < b.radius + pl.radius) {
+        pl.takeDamage(20 * dt);
+      }
     }
   }
 
@@ -664,8 +709,9 @@ function scaleBoss(boss, hpMult, level) {
   return boss;
 }
 
-function updateGroundCannons(cannons, dt, player, projectiles, scrollX, viewWidth) {
+function updateGroundCannons(cannons, dt, players, projectiles, scrollX, viewWidth) {
   if (!cannons) return;
+  const playerList = (Array.isArray(players) ? players : [players]).filter(Boolean);
   for (const c of cannons) {
     if (c.hp <= 0) continue;
     c.animPhase = (c.animPhase || 0) + dt;
@@ -674,7 +720,8 @@ function updateGroundCannons(cannons, dt, player, projectiles, scrollX, viewWidt
     if (c.fireCooldown > 0) continue;
     const cx = c.x + c.w / 2;
     const cy = c.y + (c.side === "top" ? c.h - 4 : 4);
-    if (Math.hypot(player.x - cx, player.y - cy) > 550) continue;
+    const player = nearestPlayer(playerList, cx, cy);
+    if (!player || Math.hypot(player.x - cx, player.y - cy) > 550) continue;
     c.fireCooldownMax = 1.8 + Math.random() * 1.0;
     c.fireCooldown = c.fireCooldownMax;
     const aim = Math.atan2(player.y - cy, player.x - cx);

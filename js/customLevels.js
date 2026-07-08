@@ -58,7 +58,7 @@ export function createEmptyLevel() {
     groundCannons: [],
     enemies: [],
     customEnemies: {},
-    boss: { variant: "random", hp: 900, timer: 1.1, score: 5000, name: "" },
+    boss: { variant: "random", hp: 900, timer: 1.1, score: 5000, name: "", x: null },
   };
 }
 
@@ -84,12 +84,14 @@ export function normalizeLevel(raw) {
     }
   }
   const bossRaw = raw?.boss || {};
+  const bossX = Number.isFinite(bossRaw.x) ? clamp(Math.round(bossRaw.x), 300, length - 150) : null;
   const boss = {
     variant: bossRaw.variant === "random" || BOSS_VARIANTS[bossRaw.variant] ? bossRaw.variant : "random",
     hp: clamp(Math.round(bossRaw.hp) || base.boss.hp, 50, 30000),
     timer: clamp(Number(bossRaw.timer) || base.boss.timer, 0.25, 5),
     score: clamp(Math.round(bossRaw.score) || base.boss.score, 0, 100000),
     name: (bossRaw.name || "").toString().slice(0, 30),
+    x: bossX,
   };
   return {
     version: 1,
@@ -104,6 +106,11 @@ export function normalizeLevel(raw) {
     customEnemies,
     boss,
   };
+}
+
+/** Bossens x-position: den valda platsen, eller nära slutet av banan som standard. */
+export function getBossX(level) {
+  return Number.isFinite(level.boss.x) ? level.boss.x : Math.max(800, level.length - 500);
 }
 
 /** Placerar segmenten i sekvens och skalar dem så summan matchar levelns längd. */
@@ -203,7 +210,9 @@ export function generateCustomStage(rawLevel, viewHeight, seed = (Math.random() 
   const level = normalizeLevel(rawLevel);
   const { topRidge, bottomRidge, segs } = buildRidges(level, viewHeight);
   const width = level.length;
-  const bossZoneX = Math.max(800, width - 500);
+  const bossZoneX = Number.isFinite(level.boss.x)
+    ? clamp(level.boss.x, 400, width - 100)
+    : Math.max(800, width - 500);
   const biomeAt = (x) => biomeAtX(segs, x, level.biome);
 
   const obstacles = level.obstacles.map((o) => {

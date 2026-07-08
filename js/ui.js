@@ -30,6 +30,7 @@ export class UI {
         <button class="btn" data-action="editor">Baneditor</button>
         <button class="btn" data-action="play-custom">Spela egen bana</button>
         <button class="btn" data-action="enemy-designer">Fiendedesign</button>
+        <button class="btn" data-action="multiplayer">Multiplayer (co-op)</button>
         <p style="margin-top:24px;color:var(--muted);font-size:0.85rem;">
           WASD · Z skjut · X missil (efter M) · Kapslar ger power direkt · Enter = Speed
         </p>
@@ -210,6 +211,96 @@ export class UI {
   }
 
   hideHUD() {}
+
+  showMultiplayerMenu(defaultServerUrl = "") {
+    this.clear();
+    const screen = this._screen("mp-menu");
+    screen.innerHTML = `
+      <div class="panel menu-panel">
+        <h1 class="title-font">Multiplayer</h1>
+        <p class="subtitle">Spela standarduppdraget tillsammans med en vän över nätet.</p>
+        <div style="text-align:left;max-width:360px;margin:0 auto;">
+          <label style="display:block;margin:12px 0 4px;color:var(--muted);font-size:0.85rem;">Server-adress</label>
+          <input id="mp-server-url" type="text" placeholder="t.ex. mitt-spel.onrender.com" value="${defaultServerUrl}"
+            style="width:100%;padding:8px;border-radius:6px;border:1px solid #345;background:#0c1420;color:#eef2f6;box-sizing:border-box;">
+        </div>
+        <div style="margin-top:18px;">
+          <button class="btn primary" id="mp-host-btn">Skapa spel (värd)</button>
+        </div>
+        <div style="margin-top:18px;display:flex;gap:8px;justify-content:center;align-items:center;">
+          <input id="mp-join-code" type="text" maxlength="4" placeholder="RUMSKOD"
+            style="width:120px;padding:8px;border-radius:6px;border:1px solid #345;background:#0c1420;color:#eef2f6;text-transform:uppercase;text-align:center;letter-spacing:2px;">
+          <button class="btn" id="mp-join-btn">Gå med</button>
+        </div>
+        <p style="margin-top:20px;color:var(--muted);font-size:0.75rem;">
+          Värden driftar servern (se README/DEPLOY) och delar server-adressen + rumskoden med sin medspelare.
+        </p>
+        <button class="btn" style="margin-top:16px" data-action="menu">Tillbaka</button>
+      </div>
+    `;
+    screen.querySelector("#mp-host-btn").addEventListener("click", () => {
+      const url = screen.querySelector("#mp-server-url").value.trim();
+      if (!url) { alert("Ange en server-adress."); return; }
+      this.onAction?.("mp-host", url);
+    });
+    screen.querySelector("#mp-join-btn").addEventListener("click", () => {
+      const url = screen.querySelector("#mp-server-url").value.trim();
+      const code = screen.querySelector("#mp-join-code").value.trim().toUpperCase();
+      if (!url || !code) { alert("Ange server-adress och rumskod."); return; }
+      this.onAction?.("mp-join", { serverUrl: url, code });
+    });
+    this._bind(screen);
+  }
+
+  showHostLobby(code, peerConnected) {
+    this.clear();
+    const screen = this._screen("mp-lobby");
+    screen.innerHTML = `
+      <div class="panel menu-panel">
+        <h1 class="title-font">Väntrum</h1>
+        <p class="subtitle">Dela den här koden med din medspelare:</p>
+        <div style="font-size:2.4rem;letter-spacing:0.4rem;font-family:Orbitron,sans-serif;color:#39ff88;margin:20px 0;">${code}</div>
+        <p style="color:${peerConnected ? "#39ff88" : "var(--muted)"};">
+          ${peerConnected ? "✓ Medspelare ansluten!" : "Väntar på att medspelaren ansluter…"}
+        </p>
+        <button class="btn primary" data-action="mp-start-mission" ${peerConnected ? "" : "disabled"}>Starta uppdrag tillsammans</button>
+        <button class="btn" data-action="mp-leave">Avbryt</button>
+      </div>
+    `;
+    this._bind(screen);
+  }
+
+  showGuestLobby() {
+    this.clear();
+    const screen = this._screen("mp-lobby");
+    screen.innerHTML = `
+      <div class="panel menu-panel">
+        <h1 class="title-font">Ansluten!</h1>
+        <p class="subtitle">Väntar på att värden startar uppdraget…</p>
+        <button class="btn" data-action="mp-leave">Avbryt</button>
+      </div>
+    `;
+    this._bind(screen);
+  }
+
+  showWaitingForHost(stateLabel = "") {
+    this.clear();
+    const screen = this._screen("mp-wait");
+    const labels = {
+      loot: "Värden väljer belöning…",
+      gameover: "Skepp förstört — väntar på värden…",
+      hangar: "Värden är i hangaren…",
+      menu: "Värden är i menyn…",
+    };
+    screen.innerHTML = `
+      <div class="panel menu-panel">
+        <h1 class="title-font">Väntar…</h1>
+        <p class="subtitle">${labels[stateLabel] || "Väntar på värden…"}</p>
+        <button class="btn" data-action="mp-leave">Lämna spelet</button>
+      </div>
+    `;
+    this._bind(screen);
+  }
 
   _screen(id) {
     const el = document.createElement("div");

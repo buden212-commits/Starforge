@@ -17,7 +17,7 @@ cd c:\Users\jonas\Rymden
 .\start-game.ps1
 ```
 
-Öppna sedan http://localhost:8765
+Öppna sedan http://localhost:8766
 
 ## Kontroller
 
@@ -29,6 +29,13 @@ cd c:\Users\jonas\Rymden
 | Högerklick | Sekundärvapen (missiler / EMP) |
 | Space | Dash (kostar energi) |
 | Höjdplattor ↑↓ | Byt mellan LÅG / MELLAN / HÖG |
+
+## Multiplayer (co-op)
+
+Du och en vän kan spela standarduppdraget tillsammans över nätet — en av er är värd (kör
+spel-simuleringen), den andra är gäst. Se **[DEPLOY.md](DEPLOY.md)** för fullständiga
+instruktioner: hur du kör multiplayer-servern lokalt, hur du deployar den till Render, och hur
+ni kopplar ihop er via menyn **Multiplayer (co-op)**.
 
 ## Kärnloop
 
@@ -48,16 +55,21 @@ cd c:\Users\jonas\Rymden
 ```
 Rymden/
 ├── index.html
+├── server.js        # Node.js: statisk fil-servering + multiplayer-relay (WebSocket)
+├── package.json     # Node-beroenden (ws) för server.js
+├── render.yaml       # Render.com Blueprint för deploy
+├── DEPLOY.md         # Multiplayer: lokal körning + Render-deploy + hur ni spelar ihop
 ├── css/style.css
 ├── js/
 │   ├── main.js      # Entry point
 │   ├── game.js      # Game loop & states
+│   ├── net.js       # Multiplayer: WebSocket-klient & fjärrstyrd input
 │   ├── data.js      # Modules, stats, loot
 │   ├── player.js    # Player & projectiles
 │   ├── enemies.js   # AI & boss
 │   ├── terrain.js   # Canyon & collision
 │   ├── render.js    # Neon graphics
-│   ├── ui.js        # Hangar, HUD, loot
+│   ├── ui.js        # Hangar, HUD, loot, multiplayer-menyer
 │   └── save.js      # localStorage
 └── MD/              # Design docs
 ```

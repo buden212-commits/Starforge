@@ -1185,6 +1185,7 @@ export class Renderer {
       ctx.restore();
       return;
     }
+    if (e.kamikaze && e.facingAngle !== undefined) ctx.rotate(e.facingAngle);
     const s = e.sprite || e.type;
     const draw = {
       dart: () => this._shipDart(ctx, e),
@@ -2114,6 +2115,35 @@ export class Renderer {
     ctx.fillStyle = "#8899aa";
     ctx.font = "10px monospace";
     ctx.fillText("Z SKJUT | X MISSIL (efter M) | Kapsel = power direkt | ENTER = Speed", 10, 14);
+  }
+
+  /** Liten statusrad för lagkompisens skepp i co-op. */
+  drawTeammateStatus(mate) {
+    const ctx = this.ctx;
+    const w = 130;
+    const x = 10;
+    const y = 22;
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(x, y, w, 16);
+    ctx.strokeStyle = mate.alive ? "#66eeff" : "#ff4444";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, 16);
+    ctx.fillStyle = "#88ccff";
+    ctx.font = "9px monospace";
+    ctx.textAlign = "left";
+    ctx.fillText("MEDSPELARE", x + 4, y + 11);
+    if (mate.alive) {
+      const pct = Math.max(0, mate.hp / mate.stats.maxHp);
+      ctx.fillStyle = "#221111";
+      ctx.fillRect(x + 78, y + 3, 48, 10);
+      ctx.fillStyle = pct > 0.3 ? "#44ff88" : "#ff4444";
+      ctx.fillRect(x + 78, y + 3, 48 * pct, 10);
+    } else {
+      ctx.fillStyle = "#ff4444";
+      ctx.fillText("NERE", x + 88, y + 11);
+    }
+    ctx.restore();
   }
 
   _isSlotActive(player, id) {

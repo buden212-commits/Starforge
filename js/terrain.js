@@ -189,6 +189,21 @@ export function resolveMovement(entity, dx, dy, obstacles, bounds, radius) {
   entity.y = ny;
 }
 
+/** Klämmer en y-position så att den stannar innanför tunnelns tak/golv vid ett givet x. */
+export function clampToTunnel(x, y, radius, stage) {
+  const top = sampleRidge(stage.topRidge, x) + radius;
+  const bottom = sampleRidge(stage.bottomRidge, x) - radius;
+  if (bottom < top) return (top + bottom) * 0.5;
+  return Math.max(top, Math.min(bottom, y));
+}
+
+/** True om punkten ligger i berget (utanför den flygbara tunneln). */
+export function isInsideTerrain(x, y, stage, margin = 0) {
+  const top = sampleRidge(stage.topRidge, x) + margin;
+  const bottom = sampleRidge(stage.bottomRidge, x) - margin;
+  return y <= top || y >= bottom;
+}
+
 export function checkTerrainCrash(player, stage) {
   if (player.terrainHitCooldown > 0 || !player.alive) return false;
   const top = sampleRidge(stage.topRidge, player.x) + 22;

@@ -2,7 +2,7 @@ import {
   SEGMENT_TYPES, BIOMES, ENEMY_PALETTE, OBSTACLE_KINDS, BOSS_PALETTE,
   MIN_SEGMENT_LENGTH, MIN_LEVEL_LENGTH, MAX_LEVEL_LENGTH,
   createEmptyLevel, createSegment, normalizeLevel, layoutSegments,
-  buildRidges, exportLevelToFile, importLevelFromFile,
+  buildRidges, exportLevelToFile, importLevelFromFile, getBossX,
 } from "./customLevels.js";
 import { sampleRidge } from "./terrain.js";
 import { normalizeEnemyDef, importEnemyFromFile as importEnemyDefFromFile } from "./customEnemies.js";
@@ -222,6 +222,10 @@ export class Editor {
         o.x = clamp(this.screenToWorldX(pos.x), 0, this.level.length);
         o.yFrac = clamp((pos.y - vp.top) / this.previewHeight, 0, 1);
         this._rebuildCache();
+      } else if (this.drag.kind === "boss") {
+        this.level.boss.x = clamp(Math.round(this.screenToWorldX(pos.x)), 300, this.level.length - 150);
+        const input = this.dom?.querySelector(".ed-boss-x");
+        if (input) input.value = this.level.boss.x;
       }
     }
   }
@@ -290,6 +294,13 @@ export class Editor {
       this.selection = { kind: "cannon", index: this.level.groundCannons.length - 1 };
       return;
     }
+    if (this.tool === "boss") {
+      this.level.boss.x = clamp(Math.round(worldX), 300, this.level.length - 150);
+      this.selection = { kind: "boss" };
+      this.drag = { kind: "boss" };
+      this._refreshSidebar();
+      return;
+    }
 
     // select tool: hit test icons and override handles
     const hit = this._hitTest(pos);
@@ -297,11 +308,20 @@ export class Editor {
     this._refreshSidebar();
     if (hit && hit.kind === "override") {
       this.drag = { kind: "override", index: hit.index };
+    } else if (hit && hit.kind === "boss") {
+      this.drag = { kind: "boss" };
     }
   }
 
   _hitTest(pos) {
     const vp = this._viewport();
+    const bossX = getBossX(this.level);
+    const bsx = this.worldToScreenX(bossX);
+    const btop = sampleRidge(this.cache.topRidge, bossX);
+    const bbottom = sampleRidge(this.cache.bottomRidge, bossX);
+    const bsy = vp.top + (btop + bbottom) / 2;
+    if (Math.hypot(pos.x - bsx, pos.y - bsy) <= HIT_RADIUS + 4) return { kind: "boss" };
+
     const tryList = (list, kind, getX, getT) => {
       for (let i = list.length - 1; i >= 0; i--) {
         const item = list[i];
@@ -332,6 +352,14 @@ export class Editor {
   _deleteSelected() {
     if (!this.selection) return;
     const { kind, index } = this.selection;
+    if (kind === "boss") {
+      this.level.boss.x = null;
+      this.selection = null;
+      const input = this.dom?.querySelector(".ed-boss-x");
+      if (input) input.value = "";
+      this._refreshSidebar();
+      return;
+    }
     const map = {
       segment: this.level.segments,
       enemy: this.level.enemies,
@@ -476,27 +504,11 @@ export class Editor {
     }
     ctx.stroke();
 
-    // boss zone marker
-    const bossX = Math.max(800, this.level.length - 500);
-    const bsx = this.worldToScreenX(bossX);
-    if (bsx >= vp.left && bsx <= vp.right) {
-      ctx.strokeStyle = "rgba(255,60,60,0.6)";
-      ctx.setLineDash([6, 4]);
-      ctx.beginPath();
-      ctx.moveTo(bsx, vp.top);
-      ctx.lineTo(bsx, vp.bottom);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = "#ff6666";
-      ctx.font = "10px monospace";
-      ctx.textAlign = "left";
-      ctx.fillText("BOSS", bsx + 4, vp.top + 12);
-    }
-
     this._drawObstacles(ctx, vp);
     this._drawCannons(ctx, vp);
     this._drawEnemies(ctx, vp);
     this._drawOverrides(ctx, vp);
+    this._drawBossMarker(ctx, vp);
 
     ctx.restore();
   }
@@ -578,6 +590,45 @@ export class Editor {
     });
   }
 
+  _drawBossMarker(ctx, vp) {
+    const bossX = getBossX(this.level);
+    const bsx = this.worldToScreenX(bossX);
+    if (bsx < vp.left - 20 || bsx > vp.right + 20) return;
+    const auto = !Number.isFinite(this.level.boss.x);
+    const selected = this.selection?.kind === "boss";
+
+    ctx.strokeStyle = auto ? "rgba(255,60,60,0.35)" : "rgba(255,60,60,0.7)";
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(bsx, vp.top);
+    ctx.lineTo(bsx, vp.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const top = sampleRidge(this.cache.topRidge, bossX);
+    const bottom = sampleRidge(this.cache.bottomRidge, bossX);
+    const bsy = vp.top + (top + bottom) / 2;
+
+    ctx.fillStyle = auto ? "#aa4444" : "#ff5555";
+    ctx.strokeStyle = selected ? "#ffee66" : "#220000";
+    ctx.lineWidth = selected ? 3 : 1.5;
+    ctx.beginPath();
+    ctx.arc(bsx, bsy, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 12px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("B", bsx, bsy + 1);
+    ctx.textBaseline = "alphabetic";
+
+    ctx.fillStyle = "#ff8888";
+    ctx.font = "10px monospace";
+    ctx.textAlign = "left";
+    ctx.fillText(auto ? "BOSS (auto)" : "BOSS", bsx + 14, vp.top + 12);
+  }
+
   _drawOverrides(ctx, vp) {
     this.level.terrainOverrides.forEach((o, i) => {
       const sx = this.worldToScreenX(o.x);
@@ -607,6 +658,7 @@ export class Editor {
   _toolLabel() {
     if (this.tool === "select") return "Markera / ta bort";
     if (this.tool === "cannon") return "Luftvärn";
+    if (this.tool === "boss") return "Placera boss";
     if (this.tool.startsWith("terrainpoint:")) return `Terrängpunkt (${this.tool.endsWith("top") ? "tak" : "golv"})`;
     if (this.tool.startsWith("enemy:")) return `Fiende: ${this._enemyLabel(this.tool.slice("enemy:".length))}`;
     if (this.tool.startsWith("obstacle:")) return `Hinder: ${this.tool.split(":")[1]}`;
@@ -679,7 +731,15 @@ export class Editor {
           </div>
         </div>
         <div class="ed-tool-group">
-          <h4>Boss (slutet av banan)</h4>
+          <h4>Boss</h4>
+          <div class="ed-palette">
+            <button class="ed-tool-btn" data-tool="boss" style="--dot:#ff5555">🎯 Placera boss på kartan</button>
+          </div>
+          <label class="ed-label ed2-stat">Position (m)
+            <input class="ed-input ed-boss-x" type="number" min="300" max="${this.level.length - 150}" step="50"
+              value="${Number.isFinite(this.level.boss.x) ? this.level.boss.x : ""}" placeholder="Auto (nära slutet)">
+          </label>
+          <button class="btn small" data-action="ed-boss-x-auto">Återställ till auto-position</button>
           <label class="ed-label">Typ
             <select class="ed-input ed-boss-variant">${BOSS_PALETTE.map((b) => `<option value="${b.id}" ${b.id === this.level.boss.variant ? "selected" : ""}>${b.label}</option>`).join("")}</select>
           </label>
@@ -695,7 +755,7 @@ export class Editor {
           <label class="ed-label ed2-stat">Poäng
             <input class="ed-input ed-boss-score" type="number" min="0" max="100000" step="100" value="${this.level.boss.score}">
           </label>
-          <p class="ed-help">Välj "Slumpad" för samma variation som vanliga uppdrag, eller en specifik boss och finjustera dess egenskaper.</p>
+          <p class="ed-help">Klicka på "Placera boss på kartan" och klicka sedan i banan för att välja var bossen ska möta spelaren. Dra markören för att flytta den, eller ange en exakt position i meter. Välj "Slumpad" för samma variation som vanliga uppdrag, eller en specifik boss och finjustera dess egenskaper.</p>
         </div>
         <div class="ed-tool-group">
           <button class="ed-tool-btn ${this.tool === "select" ? "active" : ""}" data-tool="select">Markera / ta bort</button>
@@ -749,6 +809,18 @@ export class Editor {
       }
     });
     root.querySelector(".ed-boss-name").addEventListener("input", (e) => { this.level.boss.name = e.target.value; });
+    root.querySelector(".ed-boss-x").addEventListener("change", (e) => {
+      const v = e.target.value.trim();
+      if (v === "") { this.level.boss.x = null; return; }
+      this.level.boss.x = clamp(parseInt(v, 10) || 0, 300, this.level.length - 150);
+      e.target.value = this.level.boss.x;
+    });
+    root.querySelector("[data-action='ed-boss-x-auto']").addEventListener("click", () => {
+      this.level.boss.x = null;
+      root.querySelector(".ed-boss-x").value = "";
+      if (this.selection?.kind === "boss") this.selection = null;
+      this._refreshSidebar();
+    });
     root.querySelector(".ed-boss-hp").addEventListener("change", (e) => {
       this.level.boss.hp = clamp(parseInt(e.target.value, 10) || this.level.boss.hp, 50, 30000);
     });
@@ -865,6 +937,8 @@ export class Editor {
         this._rebuildCache();
         this.dom.querySelector(".ed-length").value = this.level.length;
       });
+    } else if (kind === "boss") {
+      el.innerHTML = `<h4>Boss</h4><p class="ed-help">Dra markören för att flytta bossen. Tryck Delete för att återställa till standardplats (nära slutet).</p>`;
     } else {
       el.innerHTML = `<h4>Vald markör</h4><p class="ed-help">Tryck Delete eller "Ta bort markerat" för att ta bort.</p>`;
     }

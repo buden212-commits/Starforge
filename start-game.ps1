@@ -1,5 +1,5 @@
 # Starforge — lokal webbserver (krävs för ES-moduler)
-$Port = 8765
+$Port = 8766
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $Mime = @{

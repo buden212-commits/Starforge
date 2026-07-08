@@ -1,4 +1,4 @@
-import { resolveMovement, collidesCircleRect } from "./terrain.js";
+import { resolveMovement, collidesCircleRect, sampleRidge } from "./terrain.js";
 import { POWER_SLOTS, LASER_WEAPON } from "./power.js";
 
 export class Player {
@@ -30,6 +30,7 @@ export class Player {
     this.powerMessage = "";
     this.powerMessageTimer = 0;
     this.terrainHitCooldown = 0;
+    this.activateCooldown = 0;
   }
 
   syncWorldX() {
@@ -216,7 +217,21 @@ export function createEmpPulse(x, y, weapon, damageMult) {
   };
 }
 
-export function updateProjectiles(projectiles, dt, obstacles, enemies, player, onHit, renderer, groundCannons = []) {
+/** Väljer den levande spelare som ligger närmast punkten (x, y). Stödjer både en enda Player och en array. */
+function nearestPlayer(players, x, y) {
+  const list = Array.isArray(players) ? players : [players];
+  let best = null;
+  let bestDist = Infinity;
+  for (const p of list) {
+    if (!p || !p.alive) continue;
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < bestDist) { bestDist = d; best = p; }
+  }
+  return best || list[0];
+}
+
+export function updateProjectiles(projectiles, dt, obstacles, enemies, players, onHit, renderer, groundCannons = [], stage = null) {
+  const playerList = Array.isArray(players) ? players.filter(Boolean) : [players].filter(Boolean);
   const remaining = [];
 
   // Målsökande robotar kan skjutas ner av spelarens skott innan de träffar.
@@ -274,8 +289,9 @@ export function updateProjectiles(projectiles, dt, obstacles, enemies, player, o
         p.vx = Math.cos(current + turn) * speed;
         p.vy = Math.sin(current + turn) * speed;
       }
-    } else if (p.homing && p.owner === "enemy" && player.alive) {
-      const desired = Math.atan2(player.y - p.y, player.x - p.x);
+    } else if (p.homing && p.owner === "enemy" && playerList.some((pl) => pl.alive)) {
+      const target = nearestPlayer(playerList, p.x, p.y);
+      const desired = Math.atan2(target.y - p.y, target.x - p.x);
       const current = Math.atan2(p.vy, p.vx);
       let diff = desired - current;
       while (diff > Math.PI) diff -= Math.PI * 2;
@@ -292,7 +308,15 @@ export function updateProjectiles(projectiles, dt, obstacles, enemies, player, o
     p.life -= dt;
 
     let blocked = false;
-    for (const obs of obstacles) {
+    if (stage) {
+      const top = sampleRidge(stage.topRidge, p.x);
+      const bottom = sampleRidge(stage.bottomRidge, p.x);
+      if (p.y - p.radius <= top || p.y + p.radius >= bottom) {
+        blocked = true;
+        renderer.addExplosion(p.x, p.y, p.color, 5);
+      }
+    }
+    for (const obs of !blocked ? obstacles : []) {
       if (obs.hp <= 0) continue;
       if (Math.hypot(Math.max(obs.x, Math.min(p.x, obs.x + obs.w)) - p.x,
           Math.max(obs.y, Math.min(p.y, obs.y + obs.h)) - p.y) < p.radius + 4) {
@@ -331,12 +355,18 @@ export function updateProjectiles(projectiles, dt, obstacles, enemies, player, o
         }
       }
       if (hit) { renderer.addExplosion(p.x, p.y, p.color, 8); continue; }
-    } else if (player.alive) {
-      if (Math.hypot(player.x - p.x, player.y - p.y) < player.radius + p.radius) {
-        player.takeDamage(p.damage);
-        renderer.addExplosion(p.x, p.y, p.color, 8);
-        continue;
+    } else {
+      let hitPlayer = false;
+      for (const pl of playerList) {
+        if (!pl.alive) continue;
+        if (Math.hypot(pl.x - p.x, pl.y - p.y) < pl.radius + p.radius) {
+          pl.takeDamage(p.damage);
+          renderer.addExplosion(p.x, p.y, p.color, 8);
+          hitPlayer = true;
+          break;
+        }
       }
+      if (hitPlayer) continue;
     }
     remaining.push(p);
   }
