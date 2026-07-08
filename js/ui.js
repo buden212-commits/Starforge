@@ -233,7 +233,7 @@ export class UI {
     screen.innerHTML = `
       <div class="panel menu-panel">
         <h1 class="title-font">Multiplayer</h1>
-        <p class="subtitle">Spela standarduppdraget tillsammans med en vän över nätet.</p>
+        <p class="subtitle">Spela standarduppdraget eller en egen bana tillsammans med en vän över nätet.</p>
         ${inAppWarning}
         <div style="text-align:left;max-width:360px;margin:0 auto;">
           <label style="display:block;margin:12px 0 4px;color:var(--muted);font-size:0.85rem;">Server-adress</label>
@@ -293,7 +293,7 @@ export class UI {
     this._bind(screen);
   }
 
-  showHostLobby(code, peerConnected) {
+  showHostLobby(code, peerConnected, customLevelName = null) {
     this.clear();
     const screen = this._screen("mp-lobby");
     screen.innerHTML = `
@@ -304,20 +304,38 @@ export class UI {
         <p style="color:${peerConnected ? "#39ff88" : "var(--muted)"};">
           ${peerConnected ? "✓ Medspelare ansluten!" : "Väntar på att medspelaren ansluter…"}
         </p>
+        <div style="margin:16px 0;padding:12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid #345;">
+          <p style="margin:0 0 8px;color:var(--muted);font-size:0.85rem;">Bana</p>
+          <p style="margin:0 0 10px;font-weight:600;">${customLevelName ? customLevelName : "Standarduppdrag"}</p>
+          <button class="btn small" id="mp-upload-level-btn">Ladda upp egen bana…</button>
+          ${customLevelName ? `<button class="btn small" id="mp-clear-level-btn">Använd standarduppdrag</button>` : ""}
+          <input type="file" id="mp-level-file" accept="application/json,.json" style="display:none">
+        </div>
         <button class="btn primary" data-action="mp-start-mission" ${peerConnected ? "" : "disabled"}>Starta uppdrag tillsammans</button>
         <button class="btn" data-action="mp-leave">Avbryt</button>
       </div>
     `;
+    screen.querySelector("#mp-upload-level-btn").addEventListener("click", () => {
+      screen.querySelector("#mp-level-file").click();
+    });
+    screen.querySelector("#mp-level-file").addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (file) this.onAction?.("mp-upload-level", file);
+    });
+    screen.querySelector("#mp-clear-level-btn")?.addEventListener("click", () => {
+      this.onAction?.("mp-clear-level");
+    });
     this._bind(screen);
   }
 
-  showGuestLobby() {
+  showGuestLobby(customLevelName = null) {
     this.clear();
     const screen = this._screen("mp-lobby");
     screen.innerHTML = `
       <div class="panel menu-panel">
         <h1 class="title-font">Ansluten!</h1>
         <p class="subtitle">Väntar på att värden startar uppdraget…</p>
+        <p style="color:var(--muted);font-size:0.9rem;">Bana: <strong>${customLevelName ? customLevelName : "Standarduppdrag"}</strong></p>
         <button class="btn" data-action="mp-leave">Avbryt</button>
       </div>
     `;

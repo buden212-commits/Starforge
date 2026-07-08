@@ -202,6 +202,7 @@ export function createProjectile(owner, x, y, angle, weapon, spread = 0) {
     damage,
     color: weapon.color,
     owner: isPlayer ? "player" : "enemy",
+    sourcePlayer: isPlayer ? owner : null,
     life: weapon.robot ? 5 : 2.5,
     homing: weapon.homing || false,
     robot: weapon.robot || false,
@@ -331,6 +332,17 @@ export function updateProjectiles(projectiles, dt, obstacles, enemies, players, 
 
     if (p.owner === "player") {
       let hit = false;
+      // Vän-eld: i multiläge kan en spelare träffa sin medspelare med sina skott.
+      for (const pl of playerList) {
+        if (!pl.alive || pl === p.sourcePlayer) continue;
+        if (Math.hypot(pl.x - p.x, pl.y - p.y) < pl.radius + p.radius) {
+          pl.takeDamage(p.damage);
+          renderer.addExplosion(p.x, p.y, p.color, 8);
+          hit = true;
+          break;
+        }
+      }
+      if (hit) continue;
       for (const c of groundCannons) {
         if (c.hp <= 0) continue;
         if (collidesCircleRect(p.x, p.y, p.radius, c)) {

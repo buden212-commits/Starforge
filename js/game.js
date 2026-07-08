@@ -97,6 +97,9 @@ export class Game {
     this._netInputAccum = 0;
     this._netSnapshotAccum = 0;
     this._pendingFx = [];
+    this.mpCustomLevel = null; // värd: vald egen bana att spela tillsammans, annars standarduppdrag
+    this._mpRoomCode = null;
+    this._mpPeerConnected = false;
     this._setupNetHandlers();
 
     this.ui.setHandler((action, data) => this.handleAction(action, data));
@@ -146,6 +149,9 @@ export class Game {
     this.net.on("mission-start", (d) => {
       if (this.mpRole === "guest") this._guestStartMission(d);
     });
+    this.net.on("level-file", (d) => {
+      if (this.mpRole === "guest") this.ui.showGuestLobby(d.name);
+    });
     this.net.on("next-level", (d) => {
       if (this.mpRole !== "guest") return;
       this.currentLevel = d.level;
@@ -171,9 +177,13 @@ export class Game {
       });
       this.mpRole = "host";
       this.state = "mp-lobby";
-      this.ui.showHostLobby(code, false);
+      this._mpRoomCode = code;
+      this._mpPeerConnected = false;
+      this.ui.showHostLobby(code, false, this.mpCustomLevel?.name || null);
       this.net.on("peer-joined", () => {
-        this.ui.showHostLobby(code, true);
+        this._mpPeerConnected = true;
+        this.ui.showHostLobby(code, true, this.mpCustomLevel?.name || null);
+        if (this.mpCustomLevel) this.net.send("level-file", { name: this.mpCustomLevel.name });
       });
     } catch (err) {
       alert("Kunde inte skapa rum: " + err.message + this._inAppBrowserHint());
@@ -209,8 +219,21 @@ export class Game {
     this.mpRole = null;
     this.teammate = null;
     this.remoteSnapshot = null;
+    this.mpCustomLevel = null;
+    this._mpRoomCode = null;
+    this._mpPeerConnected = false;
     this.state = "menu";
     this.ui.showMenu();
+  }
+
+  _mpUploadLevel(file) {
+    importLevelFromFile(file).then((level) => {
+      this.mpCustomLevel = level;
+      this.ui.showHostLobby(this._mpRoomCode, this._mpPeerConnected, level.name);
+      if (this._mpPeerConnected) this.net.send("level-file", { name: level.name });
+    }).catch(() => {
+      alert("Kunde inte läsa banfilen. Är det en giltig Starforge-banfil?");
+    });
   }
 
   handleAction(action, data) {
@@ -246,7 +269,10 @@ export class Game {
         this._promptImportAndPlay();
         break;
       case "retry-custom":
-        if (this.customLevel) this.startCustomMission(this.customLevel);
+        if (this.customLevel) {
+          if (this.mpRole === "host") this._startHostCustomMission(this.customLevel);
+          else this.startCustomMission(this.customLevel);
+        }
         break;
       case "exit-to-editor":
         this._exitCustomTest();
@@ -270,6 +296,7 @@ export class Game {
         if (this.mpRole === "host") this.net.send("state-change", { state: "hangar" });
         break;
       case "multiplayer":
+        this.mpCustomLevel = null;
         this.state = "mp-menu";
         this.ui.showMultiplayerMenu(this.mpServerUrl);
         break;
@@ -278,6 +305,14 @@ export class Game {
         break;
       case "mp-join":
         this._guestJoinRoom(data);
+        break;
+      case "mp-upload-level":
+        this._mpUploadLevel(data);
+        break;
+      case "mp-clear-level":
+        this.mpCustomLevel = null;
+        this.ui.showHostLobby(this._mpRoomCode, this._mpPeerConnected, null);
+        if (this._mpPeerConnected) this.net.send("level-file", { name: null });
         break;
       case "mp-start-mission":
         this.startMission();
@@ -403,6 +438,11 @@ export class Game {
   }
 
   startMission() {
+    if (this.mpRole === "host" && this.mpCustomLevel) {
+      this._startHostCustomMission(this.mpCustomLevel);
+      return;
+    }
+
     this.audio.stopIntro();
     this.state = "mission";
     this.ui.clear();
@@ -437,8 +477,44 @@ export class Game {
     this.ui.showHUD();
 
     if (this.mpRole === "host") {
-      this.net.send("mission-start", { level: 1, seed: this.levelSeed, twinBee });
+      this.net.send("mission-start", { type: "standard", level: 1, seed: this.levelSeed, twinBee });
     }
+  }
+
+  // --- Värd: starta en egen bana tillsammans med gästen ----------------
+  _startHostCustomMission(levelDef) {
+    this.audio.stopIntro();
+    this.state = "mission";
+    this.ui.clear();
+
+    const stats = computeStats(this.save.build, this.save.affixes);
+    const vh = this.canvas.height;
+    this.customLevel = levelDef;
+    this.levelSeed = (Math.random() * 99999) | 0;
+    this.currentLevel = 1;
+    this.stage = generateCustomStage(levelDef, vh, this.levelSeed);
+    this.stage.twinBeeUnlocked = false;
+    this.scrollX = 0;
+
+    const twinBee = this.save.twinBeeMode;
+    this.player = new Player(stats, 0, 100, vh * 0.5, this.canvas.width, twinBee);
+    this.teammate = new Player(stats, 0, 60, vh * 0.5 + 30, this.canvas.width, twinBee);
+    this.director = new EnemyDirector(this.stage, this.canvas.width);
+    this.director.setTwinBeeMode(twinBee);
+
+    this.projectiles = [];
+    this.runKills = 0;
+    this.score = 0;
+    this.bossDefeated = false;
+    this.bossDefeatLock = false;
+    this.levelTransition = 0;
+    this._pendingFx = [];
+
+    this.save.runs++;
+    writeSave(this.save);
+    this.ui.showHUD();
+
+    this.net.send("mission-start", { type: "custom", level: levelDef, seed: this.levelSeed, twinBee });
   }
 
   // --- Gäst: spegling av värdens uppdrag (ingen egen simulering) -----
@@ -446,10 +522,17 @@ export class Game {
     this.audio.stopIntro();
     this.state = "mission";
     this.ui.clear();
-    this.customLevel = null;
-    this.currentLevel = d.level;
-    this.levelSeed = d.seed;
-    this.stage = createStage(this.canvas.height, d.level, d.seed);
+    if (d.type === "custom") {
+      this.customLevel = d.level;
+      this.currentLevel = 1;
+      this.levelSeed = d.seed;
+      this.stage = generateCustomStage(d.level, this.canvas.height, d.seed);
+    } else {
+      this.customLevel = null;
+      this.currentLevel = d.level;
+      this.levelSeed = d.seed;
+      this.stage = createStage(this.canvas.height, d.level, d.seed);
+    }
     this.scrollX = 0;
     this.remoteSnapshot = null;
     this.ui.showHUD();
@@ -476,7 +559,7 @@ export class Game {
     const players = isHost ? [this.player, this.teammate] : [this.player];
     const inputSources = isHost ? [input, this.remoteInput] : [input];
 
-    if (this.customLevel && input.wasPressed("Escape")) {
+    if (this.customLevel && !this.mpRole && input.wasPressed("Escape")) {
       this._exitCustomTest();
       input.endFrame();
       return;
