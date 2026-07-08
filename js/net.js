@@ -19,8 +19,13 @@ export class NetClient {
     this.handlers[type]?.(data);
   }
 
-  /** Ansluter till relay-servern. serverUrl t.ex. "wss://mitt-rum.onrender.com" eller "ws://localhost:8766". */
-  _open(serverUrl) {
+  /**
+   * Ansluter till relay-servern. serverUrl t.ex. "wss://mitt-rum.onrender.com" eller "ws://localhost:8766".
+   * Gratisplaner (t.ex. Render) kan ha låtit servern somna — då avvisas de första
+   * anslutningsförsöken direkt medan servern vaknar. Vi försöker därför om i upp till
+   * `timeoutMs` innan vi ger upp, och rapporterar det via `onRetry` så UI kan visa "väcker servern…".
+   */
+  _open(serverUrl, { timeoutMs = 60000, retryDelayMs = 2500, onRetry } = {}) {
     return new Promise((resolve, reject) => {
       let url = serverUrl.trim();
       if (!/^wss?:\/\//i.test(url)) {
@@ -30,46 +35,68 @@ export class NetClient {
       }
       url = url.replace(/\/$/, "") + "/ws";
 
-      const ws = new WebSocket(url);
-      this.ws = ws;
+      const deadline = Date.now() + timeoutMs;
+      let settled = false;
+      let attempts = 0;
 
-      const onOpenError = () => reject(new Error("Kunde inte ansluta till servern."));
-      ws.addEventListener("error", onOpenError, { once: true });
+      const attempt = () => {
+        attempts++;
+        const ws = new WebSocket(url);
+        this.ws = ws;
 
-      ws.addEventListener("open", () => {
-        ws.removeEventListener("error", onOpenError);
-        this.connected = true;
-        resolve(ws);
-      }, { once: true });
+        const onError = () => {
+          if (settled) return;
+          if (Date.now() >= deadline) {
+            settled = true;
+            reject(new Error("Kunde inte ansluta till servern. Kontrollera adressen. Om den nyss somnat (gratisplan) kan det ta upp till en minut — testa igen."));
+            return;
+          }
+          onRetry?.(attempts);
+          setTimeout(attempt, retryDelayMs);
+        };
 
-      ws.addEventListener("message", (ev) => {
-        let msg;
-        try {
-          msg = JSON.parse(ev.data);
-        } catch {
-          return;
-        }
-        if (msg.t === "peer-joined") {
-          this.peerConnected = true;
-          this._emit("peer-joined");
-        } else if (msg.t === "peer-left") {
+        const onOpen = () => {
+          if (settled) return;
+          settled = true;
+          this.connected = true;
+          resolve(ws);
+        };
+
+        ws.addEventListener("error", onError, { once: true });
+        ws.addEventListener("open", onOpen, { once: true });
+
+        ws.addEventListener("message", (ev) => {
+          let msg;
+          try {
+            msg = JSON.parse(ev.data);
+          } catch {
+            return;
+          }
+          if (msg.t === "peer-joined") {
+            this.peerConnected = true;
+            this._emit("peer-joined");
+          } else if (msg.t === "peer-left") {
+            this.peerConnected = false;
+            this._emit("peer-left");
+          } else {
+            this._emit(msg.t, msg.d);
+          }
+        });
+
+        ws.addEventListener("close", () => {
+          if (this.ws !== ws) return; // en tidigare, övergiven anslutning — ignorera
+          this.connected = false;
           this.peerConnected = false;
-          this._emit("peer-left");
-        } else {
-          this._emit(msg.t, msg.d);
-        }
-      });
+          this._emit("disconnected");
+        });
+      };
 
-      ws.addEventListener("close", () => {
-        this.connected = false;
-        this.peerConnected = false;
-        this._emit("disconnected");
-      });
+      attempt();
     });
   }
 
-  async createRoom(serverUrl) {
-    await this._open(serverUrl);
+  async createRoom(serverUrl, onRetry) {
+    await this._open(serverUrl, { onRetry });
     this.role = "host";
     this.ws.send(JSON.stringify({ t: "create" }));
     return new Promise((resolve, reject) => {
@@ -77,12 +104,12 @@ export class NetClient {
         this.roomCode = d.code;
         resolve(d.code);
       });
-      setTimeout(() => reject(new Error("Timeout vid skapande av rum.")), 8000);
+      setTimeout(() => reject(new Error("Timeout vid skapande av rum.")), 10000);
     });
   }
 
-  async joinRoom(serverUrl, code) {
-    await this._open(serverUrl);
+  async joinRoom(serverUrl, code, onRetry) {
+    await this._open(serverUrl, { onRetry });
     this.role = "guest";
     this.ws.send(JSON.stringify({ t: "join", d: { code } }));
     return new Promise((resolve, reject) => {
@@ -94,7 +121,7 @@ export class NetClient {
       this.on("join-error", (d) => {
         reject(new Error(d.reason === "not-found" ? "Rumskoden hittades inte." : "Rummet är fullt."));
       });
-      setTimeout(() => reject(new Error("Timeout vid anslutning.")), 8000);
+      setTimeout(() => reject(new Error("Timeout vid anslutning.")), 10000);
     });
   }
 

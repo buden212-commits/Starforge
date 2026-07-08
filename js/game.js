@@ -165,7 +165,10 @@ export class Game {
     try {
       localStorage.setItem("starforge_mp_server", serverUrl);
       this.mpServerUrl = serverUrl;
-      const code = await this.net.createRoom(serverUrl);
+      this.ui.showMultiplayerConnecting();
+      const code = await this.net.createRoom(serverUrl, (attempts) => {
+        if (attempts >= 2) this.ui.showMultiplayerConnecting(true);
+      });
       this.mpRole = "host";
       this.state = "mp-lobby";
       this.ui.showHostLobby(code, false);
@@ -174,6 +177,7 @@ export class Game {
       });
     } catch (err) {
       alert("Kunde inte skapa rum: " + err.message);
+      this.ui.showMultiplayerMenu(this.mpServerUrl);
     }
   }
 
@@ -181,12 +185,16 @@ export class Game {
     try {
       localStorage.setItem("starforge_mp_server", serverUrl);
       this.mpServerUrl = serverUrl;
-      await this.net.joinRoom(serverUrl, code);
+      this.ui.showMultiplayerConnecting();
+      await this.net.joinRoom(serverUrl, code, (attempts) => {
+        if (attempts >= 2) this.ui.showMultiplayerConnecting(true);
+      });
       this.mpRole = "guest";
       this.state = "mp-lobby";
       this.ui.showGuestLobby();
     } catch (err) {
       alert("Kunde inte ansluta: " + err.message);
+      this.ui.showMultiplayerMenu(this.mpServerUrl);
     }
   }
 

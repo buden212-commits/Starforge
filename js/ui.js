@@ -252,6 +252,31 @@ export class UI {
     this._bind(screen);
   }
 
+  showMultiplayerConnecting(waking = false) {
+    // Om skärmen redan visas, uppdatera bara texten (undviker flimmer vid upprepade retry-anrop).
+    const existing = document.getElementById("screen-mp-connecting");
+    if (existing) {
+      const p = existing.querySelector("#mp-connecting-text");
+      if (p && waking) {
+        p.textContent = "Servern verkar ha somnat (gratisplan) — väcker den, kan ta upp till en minut…";
+      }
+      return;
+    }
+    this.clear();
+    const screen = this._screen("mp-connecting");
+    screen.innerHTML = `
+      <div class="panel menu-panel">
+        <h1 class="title-font">Ansluter…</h1>
+        <p class="subtitle" id="mp-connecting-text">${
+          waking
+            ? "Servern verkar ha somnat (gratisplan) — väcker den, kan ta upp till en minut…"
+            : "Kopplar upp mot servern…"
+        }</p>
+      </div>
+    `;
+    this._bind(screen);
+  }
+
   showHostLobby(code, peerConnected) {
     this.clear();
     const screen = this._screen("mp-lobby");
