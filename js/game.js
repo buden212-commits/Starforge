@@ -50,9 +50,36 @@ function serializeBoss(b) {
 
 function serializeProjectile(p) {
   return {
-    x: p.x, y: p.y, color: p.color, owner: p.owner, radius: p.radius, vx: p.vx, vy: p.vy,
+    id: p.id, x: p.x, y: p.y, color: p.color, owner: p.owner, radius: p.radius, vx: p.vx, vy: p.vy,
     robot: p.robot, maxRadius: p.maxRadius, life: p.life,
   };
+}
+
+// --- Gäst: interpolering mellan de två senaste ögonblicksbilderna (snapshots) ---------
+// Utan detta hoppar fjärrstyrda objekt (fiender, projektiler, medspelaren) i tydliga steg
+// varje gång ett nytt nätverkspaket kommer (20-30 ggr/sek), vilket ser hackigt/laggigt ut
+// trots att spelet i övrigt ritas i 60 fps. Genom att jämna ut rörelsen mellan de två senast
+// mottagna lägena döljs detta, till priset av en knapp extra fördröjning (en snapshot-period).
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function interpById(list, prevList, t) {
+  if (!prevList || !prevList.length) return list;
+  return list.map((item) => {
+    const prev = prevList.find((p) => p.id === item.id);
+    if (!prev) return item;
+    const out = { ...item, x: lerp(prev.x, item.x, t), y: lerp(prev.y, item.y, t) };
+    if (typeof prev.radius === "number" && typeof item.radius === "number") {
+      out.radius = lerp(prev.radius, item.radius, t);
+    }
+    return out;
+  });
+}
+
+function interpSingle(cur, prev, t) {
+  if (!cur || !prev) return cur;
+  return { ...cur, x: lerp(prev.x, cur.x, t), y: lerp(prev.y, cur.y, t) };
 }
 
 export class Game {
@@ -146,7 +173,13 @@ export class Game {
       if (this.mpRole === "host") this.remoteInput.applyPacket(packet);
     });
     this.net.on("snapshot", (snap) => {
-      if (this.mpRole === "guest") this.remoteSnapshot = snap;
+      if (this.mpRole !== "guest") return;
+      // Sparar föregående ögonblicksbild + tidsstämplar så vi kan mjukt interpolera
+      // fiender/projektiler/medspelare mellan dem istället för att de hoppar i steg.
+      this._prevSnapshot = this.remoteSnapshot;
+      this._prevSnapshotAt = this._snapshotAt || performance.now();
+      this.remoteSnapshot = snap;
+      this._snapshotAt = performance.now();
     });
     this.net.on("mission-start", (d) => {
       if (this.mpRole === "guest") this._guestStartMission(d);
@@ -160,6 +193,10 @@ export class Game {
       this.levelSeed = d.seed;
       this.stage = createStage(this.canvas.height, d.level, d.seed);
       if (d.twinBeeUnlocked) this.stage.twinBeeUnlocked = true;
+      this.remoteSnapshot = null;
+      this._prevSnapshot = null;
+      this._snapshotAt = undefined;
+      this._prevSnapshotAt = undefined;
       this._guestScrollX = 0;
       if (this._guestPlayer) {
         this._guestPlayer.scrollX = 0;
@@ -544,6 +581,9 @@ export class Game {
     }
     this.scrollX = 0;
     this.remoteSnapshot = null;
+    this._prevSnapshot = null;
+    this._snapshotAt = undefined;
+    this._prevSnapshotAt = undefined;
 
     // Gästen simulerar sitt eget skepp lokalt (klientsidig förutsägelse) så att styrningen
     // känns direkt trots nätverksfördröjningen mot värden — som sedan mjukt rättas mot
@@ -767,6 +807,7 @@ export class Game {
     const bounds = getPlayBounds(this.stage, gp.x);
     const playBounds = { ...bounds, minX: 0, maxX: 0 };
     gp.update(dt, this.input, this.stage.obstacles, playBounds);
+    this._predictGuestFiring();
 
     const authoritative = snap?.players?.[1];
     if (!authoritative) return;
@@ -799,11 +840,36 @@ export class Game {
     gp.x = this._guestScrollX + gp.screenX;
   }
 
+  // --- Gäst: visuell mynningsflammor direkt vid knapptryck (skotten själva simuleras
+  // fortfarande bara på värden), så att avfyrning känns omedelbar trots nätverksfördröjningen. ---
+  _predictGuestFiring() {
+    const gp = this._guestPlayer;
+    if (!gp.alive) return;
+    const firing = this.input.isDown("Space", "KeyZ") || this.input.mouse.down;
+    if (firing && gp.canFirePrimary()) {
+      const w = gp.firePrimary();
+      this.renderer.addExplosion(gp.x + 22, gp.y, w.color, 3);
+    }
+    if (this.input.isDown("KeyX", "ShiftLeft") && gp.canFireSecondary()) {
+      const w = gp.fireSecondary();
+      this.renderer.addExplosion(gp.x, gp.y, w.color, 5);
+    }
+  }
+
   _drawGuestMission() {
     const snap = this.remoteSnapshot;
     const { renderer, stage } = this;
     if (!snap || !stage) return;
     const scrollX = this._guestScrollX;
+
+    const prevSnap = this._prevSnapshot;
+    const interval = this._prevSnapshotAt ? Math.max(1, this._snapshotAt - this._prevSnapshotAt) : 1000 / SNAPSHOT_HZ;
+    const t = Math.max(0, Math.min(1, (performance.now() - this._snapshotAt) / interval));
+
+    const enemies = interpById(snap.enemies || [], prevSnap?.enemies, t);
+    const projectiles = interpById(snap.projectiles || [], prevSnap?.projectiles, t);
+    const boss = interpSingle(snap.boss, prevSnap?.boss, t);
+    const host = interpSingle(snap.players?.[0], prevSnap?.players?.[0], t);
 
     renderer.shake = Math.max(renderer.shake, snap.shake || 0);
     if (snap.twinBeeBanner > renderer.twinBeeBanner) renderer.twinBeeBanner = snap.twinBeeBanner;
@@ -824,7 +890,7 @@ export class Game {
     renderer.beginSideScroll(scrollX, stage.viewHeight, stage.biomeOffset || 0, stage.biomeAt || null);
     renderer.drawStageMountains(stage);
 
-    for (const p of snap.projectiles || []) {
+    for (const p of projectiles) {
       if (p.maxRadius !== undefined) renderer.drawEmpRing(p);
       else renderer.drawGradiusBullet(p);
     }
@@ -844,11 +910,10 @@ export class Game {
       }
     }
 
-    for (const e of snap.enemies || []) renderer.drawGradiusEnemy(e);
+    for (const e of enemies) renderer.drawGradiusEnemy(e);
 
-    if (snap.boss) renderer.drawBoss(snap.boss);
+    if (boss) renderer.drawBoss(boss);
 
-    const host = snap.players?.[0];
     if (host && host.alive) renderer.drawShip(host);
     // Eget skepp ritas från den lokalt förutsagda (predicted) positionen, inte den (äldre)
     // ögonblicksbilden från värden, för att kännas responsivt.

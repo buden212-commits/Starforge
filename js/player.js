@@ -189,6 +189,8 @@ export class Player {
   }
 }
 
+let nextProjectileId = 1;
+
 export function createProjectile(owner, x, y, angle, weapon, spread = 0) {
   const a = angle + (Math.random() - 0.5) * spread;
   const speed = weapon.projectileSpeed || 800;
@@ -196,6 +198,7 @@ export function createProjectile(owner, x, y, angle, weapon, spread = 0) {
   const damage = isPlayer ? weapon.damage * owner.stats.damageMult : weapon.damage;
 
   return {
+    id: nextProjectileId++,
     x, y,
     vx: Math.cos(a) * speed,
     vy: Math.sin(a) * speed,
@@ -212,6 +215,7 @@ export function createProjectile(owner, x, y, angle, weapon, spread = 0) {
 
 export function createEmpPulse(x, y, weapon, damageMult) {
   return {
+    id: nextProjectileId++,
     x, y, radius: 0, maxRadius: weapon.radius,
     damage: weapon.damage * damageMult, stun: weapon.stun,
     color: weapon.color, life: 0.35, owner: "player",
