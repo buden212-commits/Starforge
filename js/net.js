@@ -28,11 +28,13 @@ export class NetClient {
   _open(serverUrl, { timeoutMs = 60000, retryDelayMs = 2500, onRetry } = {}) {
     return new Promise((resolve, reject) => {
       let url = serverUrl.trim();
-      if (!/^wss?:\/\//i.test(url)) {
-        // Tillåt att man bara klistrar in "minapp.onrender.com" utan protokoll.
-        const isLocal = /localhost|127\.0\.0\.1/.test(url);
-        url = (isLocal ? "ws://" : "wss://") + url;
-      }
+      // Tillåt att man klistrar in adressen på olika sätt: "minapp.onrender.com",
+      // "https://minapp.onrender.com" eller "wss://minapp.onrender.com" ska alla fungera.
+      // Strippa bort ett ev. http(s)/ws(s)-prefix innan vi sätter rätt ws(s)-prefix, annars
+      // blir t.ex. "https://..." till det ogiltiga "wss://https://..." (dubbelt protokoll).
+      url = url.replace(/^\s*(https?|wss?):\/\//i, "");
+      const isLocal = /^(localhost|127\.0\.0\.1)/i.test(url);
+      url = (isLocal ? "ws://" : "wss://") + url;
       url = url.replace(/\/$/, "") + "/ws";
 
       const deadline = Date.now() + timeoutMs;
