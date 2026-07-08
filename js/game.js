@@ -461,7 +461,7 @@ export class Game {
     this.teammate = this.mpRole === "host"
       ? new Player(stats, 0, 60, vh * 0.5 + 30, this.canvas.width, twinBee)
       : null;
-    this.director = new EnemyDirector(this.stage, this.canvas.width);
+    this.director = new EnemyDirector(this.stage, this.canvas.width, this.mpRole === "host");
     this.director.setTwinBeeMode(twinBee);
 
     this.projectiles = [];
@@ -499,7 +499,7 @@ export class Game {
     const twinBee = this.save.twinBeeMode;
     this.player = new Player(stats, 0, 100, vh * 0.5, this.canvas.width, twinBee);
     this.teammate = new Player(stats, 0, 60, vh * 0.5 + 30, this.canvas.width, twinBee);
-    this.director = new EnemyDirector(this.stage, this.canvas.width);
+    this.director = new EnemyDirector(this.stage, this.canvas.width, true);
     this.director.setTwinBeeMode(twinBee);
 
     this.projectiles = [];

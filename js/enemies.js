@@ -201,8 +201,11 @@ function formationSpinnerRing(stage, x, viewW) {
   });
 }
 
+// Fiender får ökad motståndskraft (HP) i multiläge eftersom två spelare skjuter samtidigt.
+const MULTIPLAYER_HP_MULT = 2.5; // +150%
+
 export class EnemyDirector {
-  constructor(stage, viewWidth) {
+  constructor(stage, viewWidth, multiplayer = false) {
     this.stage = stage;
     this.viewWidth = viewWidth;
     this.enemies = [];
@@ -217,6 +220,14 @@ export class EnemyDirector {
     this.level = stage.level || 1;
     this.rearTimer = 4;
     this.isCustom = !!stage.isCustom;
+    this.hpMult = multiplayer ? MULTIPLAYER_HP_MULT : 1;
+  }
+
+  _applyHpMult(e) {
+    if (this.hpMult === 1 || !e) return e;
+    e.hp = Math.round(e.hp * this.hpMult);
+    e.maxHp = e.hp;
+    return e;
   }
 
   setTwinBeeMode(on) {
@@ -256,7 +267,10 @@ export class EnemyDirector {
       if (scrollX >= enc.x - this.viewWidth * 0.3) {
         this.spawnedIds.add(i);
         const group = enc.spawn(this.stage, enc.x, this.viewWidth);
-        for (const e of group) e.y = clampToTunnel(e.x, e.y, e.radius, this.stage);
+        for (const e of group) {
+          e.y = clampToTunnel(e.x, e.y, e.radius, this.stage);
+          this._applyHpMult(e);
+        }
         this.enemies.push(...group);
       }
     });
@@ -271,6 +285,7 @@ export class EnemyDirector {
         ? createBossFromConfig(this.stage.bossConfig, arenaX, midY, this.stage.viewHeight, bounds.bottom - 40)
         : createRandomBoss(arenaX, midY, this.stage.viewHeight, bounds.bottom - 40, this.stage.level || 1);
       this.boss.arenaX = arenaX;
+      this._applyHpMult(this.boss);
     }
 
     this._updateEnemies(dt, playerList, projectiles, onEnemyDestroyed);
@@ -302,6 +317,7 @@ export class EnemyDirector {
     const e = spawnEnemy(type, x, y);
     e.fromRear = true;
     e.rearSpeed = e.speed * (1.1 + Math.random() * 0.4);
+    this._applyHpMult(e);
     this.enemies.push(e);
   }
 
@@ -354,7 +370,7 @@ export class EnemyDirector {
         if (e.spawnTimer <= 0 && e.spawnCount < 5 && this.enemies.length < 60) {
           e.spawnTimer = 2.5;
           e.spawnCount++;
-          this.enemies.push(spawnEnemy("swarm", e.x - 10, e.y + (Math.random() - 0.5) * 40));
+          this.enemies.push(this._applyHpMult(spawnEnemy("swarm", e.x - 10, e.y + (Math.random() - 0.5) * 40)));
         }
         this._resolveShipCollision(e, playerList, onEnemyDestroyed);
         continue;
