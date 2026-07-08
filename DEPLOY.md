@@ -105,6 +105,10 @@ Det är den adressen ni ska använda för att spela — både för att öppna sp
      lokalt test).
    - Klicka **Skapa spel (värd)**.
    - Du får en 4-teckens rumskod — skicka den och server-adressen till din vän (Discord, SMS, etc).
+   - (Valfritt) Vill ni spela en **egen bana** istället för standarduppdraget: bygg och exportera
+     banan i **Baneditor** (**Spara som fil**), gå sedan till lobbyn och klicka
+     **Ladda upp egen bana…** och välj filen. Bannamnet visas i lobbyn hos både dig och gästen.
+     Klicka **Använd standarduppdrag** för att växla tillbaka.
    - Vänta tills "✓ Medspelare ansluten!" visas, klicka sedan **Starta uppdrag tillsammans**.
 2. **Gästen**: gå till **Meny → Multiplayer (co-op)**.
    - Fyll i samma server-adress som värden gav dig.
@@ -116,8 +120,9 @@ Det är den adressen ni ska använda för att spela — både för att öppna sp
 
 ### Kända begränsningar i den här versionen
 
-- Co-op fungerar bara för **standarduppdraget** ("Starta uppdrag"), inte för egna banor från
-  Baneditor eller Fiendedesign.
+- Co-op stöds nu även för **egna banor** byggda i Baneditor (se steg 1 ovan) — det är bara
+  **värden** som behöver ha banfilen; den skickas automatiskt över till gästen när uppdraget
+  startar, så gästen behöver inte ladda upp något själv.
 - Det är alltid **värden** som väljer loot efter en boss och styr "Försök igen"/"Hangar" efter
   game over — gästen ser en enkel väntskärm under tiden och följer med automatiskt när värden
   går vidare.

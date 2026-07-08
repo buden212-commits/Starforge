@@ -17,7 +17,7 @@ import { NetClient, RemoteInput, readInputPacket } from "./net.js";
 
 const SCROLL_SPEED = 110;
 const MAX_LEVEL = 3;
-const SNAPSHOT_HZ = 20;
+const SNAPSHOT_HZ = 30;
 const INPUT_HZ = 30;
 
 // --- Serialisering av spelläge för nätverksöverföring (värd → gäst) --------
@@ -90,10 +90,12 @@ export class Game {
     // --- Multiplayer ---
     this.net = new NetClient();
     this.mpRole = null; // "host" | "guest" | null (solo)
-    this.mpServerUrl = localStorage.getItem("starforge_mp_server") || "";
+    this.mpServerUrl = localStorage.getItem("starforge_mp_server") || "https://starforge-c429.onrender.com";
     this.remoteInput = new RemoteInput();
     this.teammate = null; // värd: en Player-instans för gästens skepp
     this.remoteSnapshot = null; // gäst: senaste mottagna state från värden
+    this._guestPlayer = null; // gäst: lokalt förutsagt (predicted) eget skepp, för responsiv styrning
+    this._guestScrollX = 0; // gäst: lokalt förutsagd scroll, jämnas mot värdens värde
     this._netInputAccum = 0;
     this._netSnapshotAccum = 0;
     this._pendingFx = [];
@@ -158,6 +160,13 @@ export class Game {
       this.levelSeed = d.seed;
       this.stage = createStage(this.canvas.height, d.level, d.seed);
       if (d.twinBeeUnlocked) this.stage.twinBeeUnlocked = true;
+      this._guestScrollX = 0;
+      if (this._guestPlayer) {
+        this._guestPlayer.scrollX = 0;
+        this._guestPlayer.screenX = 60;
+        this._guestPlayer.x = 60;
+        this._guestPlayer.y = this.canvas.height * 0.5 + 30;
+      }
     });
     this.net.on("state-change", (d) => {
       if (this.mpRole !== "guest") return;
@@ -535,6 +544,14 @@ export class Game {
     }
     this.scrollX = 0;
     this.remoteSnapshot = null;
+
+    // Gästen simulerar sitt eget skepp lokalt (klientsidig förutsägelse) så att styrningen
+    // känns direkt trots nätverksfördröjningen mot värden — som sedan mjukt rättas mot
+    // värdens auktoritativa läge varje ögonblicksbild (snapshot).
+    const stats = computeStats(this.save.build, this.save.affixes);
+    this._guestScrollX = 0;
+    this._guestPlayer = new Player(stats, 0, 60, this.canvas.height * 0.5 + 30, this.canvas.width, d.twinBee);
+
     this.ui.showHUD();
   }
 
@@ -718,15 +735,75 @@ export class Game {
       this._pendingActivate = false;
       this.net.send("input", packet);
     }
+
+    this._predictGuestPlayer(dt);
+
     this.input.endFrame();
     this.renderer.update(dt);
     this._drawGuestMission();
+  }
+
+  // --- Gäst: förutsäg eget skepp lokalt varje bildruta (istället för att vänta på värdens
+  // ögonblicksbild) för att styrningen ska kännas responsiv trots nätverksfördröjningen.
+  // Rättas därefter mjukt mot värdens auktoritativa position/tillstånd så de aldrig glider isär. ---
+  _predictGuestPlayer(dt) {
+    const gp = this._guestPlayer;
+    if (!gp || !this.stage) return;
+    const snap = this.remoteSnapshot;
+    const bossActive = !!(snap?.boss && snap.boss.hp > 0);
+    const transitioning = (snap?.levelBanner || 0) > 0;
+
+    if (!bossActive && !transitioning) {
+      this._guestScrollX += SCROLL_SPEED * dt * (0.85 + gp.speedLevel * 0.04);
+    }
+    if (snap) {
+      const diff = snap.scrollX - this._guestScrollX;
+      // Stora hopp (t.ex. nivåbyte) rättas direkt, mindre glidningar jämnas ut mjukt.
+      this._guestScrollX += Math.abs(diff) > 300 ? diff : diff * Math.min(1, dt * 3);
+    }
+
+    gp.scrollX = this._guestScrollX;
+    gp.syncWorldX();
+    const bounds = getPlayBounds(this.stage, gp.x);
+    const playBounds = { ...bounds, minX: 0, maxX: 0 };
+    gp.update(dt, this.input, this.stage.obstacles, playBounds);
+
+    const authoritative = snap?.players?.[1];
+    if (!authoritative) return;
+
+    gp.hp = authoritative.hp;
+    gp.energy = authoritative.energy;
+    gp.alive = authoritative.alive;
+    gp.invuln = authoritative.invuln;
+    gp.twinBeeMode = authoritative.twinBeeMode;
+    gp.twinBeeSecret = authoritative.twinBeeSecret;
+    gp.options = authoritative.options;
+    gp.powerCursor = authoritative.powerCursor;
+    gp.speedLevel = authoritative.speedLevel;
+    gp.doubleShot = authoritative.doubleShot;
+    gp.missileEnabled = authoritative.missileEnabled;
+    gp.laserEnabled = authoritative.laserEnabled;
+    gp.powerMessage = authoritative.powerMessage;
+    gp.powerMessageTimer = authoritative.powerMessageTimer;
+    gp.powerFlash = authoritative.powerFlash;
+
+    if (!authoritative.alive) return;
+    const worldX = this._guestScrollX + gp.screenX;
+    const dx = authoritative.x - worldX;
+    const dy = authoritative.y - gp.y;
+    const dist = Math.hypot(dx, dy);
+    // Nudga positionen mot värdens svar; hoppa direkt vid stora avvikelser (t.ex. respawn).
+    const correction = dist > 220 ? 1 : Math.min(1, dt * 6);
+    gp.screenX += dx * correction;
+    gp.y += dy * correction;
+    gp.x = this._guestScrollX + gp.screenX;
   }
 
   _drawGuestMission() {
     const snap = this.remoteSnapshot;
     const { renderer, stage } = this;
     if (!snap || !stage) return;
+    const scrollX = this._guestScrollX;
 
     renderer.shake = Math.max(renderer.shake, snap.shake || 0);
     if (snap.twinBeeBanner > renderer.twinBeeBanner) renderer.twinBeeBanner = snap.twinBeeBanner;
@@ -744,7 +821,7 @@ export class Game {
       if (stage.secretGaps[i]) stage.secretGaps[i].passed = passed;
     });
 
-    renderer.beginSideScroll(snap.scrollX, stage.viewHeight, stage.biomeOffset || 0, stage.biomeAt || null);
+    renderer.beginSideScroll(scrollX, stage.viewHeight, stage.biomeOffset || 0, stage.biomeAt || null);
     renderer.drawStageMountains(stage);
 
     for (const p of snap.projectiles || []) {
@@ -771,16 +848,18 @@ export class Game {
 
     if (snap.boss) renderer.drawBoss(snap.boss);
 
-    for (const p of snap.players || []) {
-      if (p && p.alive) renderer.drawShip(p);
-    }
+    const host = snap.players?.[0];
+    if (host && host.alive) renderer.drawShip(host);
+    // Eget skepp ritas från den lokalt förutsagda (predicted) positionen, inte den (äldre)
+    // ögonblicksbilden från värden, för att kännas responsivt.
+    if (this._guestPlayer && this._guestPlayer.alive) renderer.drawShip(this._guestPlayer);
 
     renderer.drawParticlesWorld();
     renderer.endSideScroll();
 
-    const own = snap.players?.[1]; // gästen är alltid index 1 i players-arrayen
+    const own = this._guestPlayer || snap.players?.[1]; // gästen är alltid index 1 i players-arrayen
     if (own) {
-      renderer.drawGradiusHUD(own, snap.score, snap.scrollX, stage.bossZoneX, snap.boss, snap.currentLevel);
+      renderer.drawGradiusHUD(own, snap.score, scrollX, stage.bossZoneX, snap.boss, snap.currentLevel);
     }
   }
 
