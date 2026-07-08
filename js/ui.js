@@ -3,6 +3,14 @@ import {
   SLOT_LABELS, computeStats, RARITY, getModuleCatalog,
 } from "./data.js";
 
+// Facebook/Messenger/Instagram/TikTok m.fl. öppnar länkar i en inbyggd webbläsare (WebView)
+// som ofta blockerar eller stör WebSocket-anslutningar. Vi kan inte fixa det från vår sida —
+// bästa vi kan göra är att varna spelaren och be dem öppna sidan i en riktig webbläsare.
+export function isInAppBrowser() {
+  const ua = navigator.userAgent || "";
+  return /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\/|MicroMessenger|TikTok/i.test(ua);
+}
+
 export class UI {
   constructor(root) {
     this.root = root;
@@ -215,10 +223,18 @@ export class UI {
   showMultiplayerMenu(defaultServerUrl = "") {
     this.clear();
     const screen = this._screen("mp-menu");
+    const inAppWarning = isInAppBrowser() ? `
+        <div style="margin:0 auto 16px;max-width:360px;padding:10px 12px;border-radius:8px;
+          background:rgba(255,180,0,0.12);border:1px solid rgba(255,180,0,0.4);color:#ffcc66;font-size:0.8rem;text-align:left;">
+          ⚠ Du verkar ha öppnat sidan i en app-inbyggd webbläsare (t.ex. Facebook/Messenger/Instagram).
+          Sådana blockerar ofta multiplayer-anslutningen. Tryck på "…" eller "Öppna i webbläsare"
+          uppe i hörnet och öppna sidan i Chrome/Safari istället.
+        </div>` : "";
     screen.innerHTML = `
       <div class="panel menu-panel">
         <h1 class="title-font">Multiplayer</h1>
         <p class="subtitle">Spela standarduppdraget tillsammans med en vän över nätet.</p>
+        ${inAppWarning}
         <div style="text-align:left;max-width:360px;margin:0 auto;">
           <label style="display:block;margin:12px 0 4px;color:var(--muted);font-size:0.85rem;">Server-adress</label>
           <input id="mp-server-url" type="text" placeholder="t.ex. mitt-spel.onrender.com" value="${defaultServerUrl}"

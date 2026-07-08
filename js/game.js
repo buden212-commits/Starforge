@@ -8,7 +8,7 @@ import { Renderer, drawHangarPreview } from "./render.js";
 import { createStage, getPlayBounds, checkSecretGaps, checkTerrainCrash } from "./terrain.js";
 import { Player, createProjectile, createEmpPulse, updateProjectiles, firePlayerShots } from "./player.js";
 import { EnemyDirector } from "./enemies.js";
-import { UI } from "./ui.js";
+import { UI, isInAppBrowser } from "./ui.js";
 import { AudioEngine } from "./audio.js";
 import { Editor } from "./editor.js";
 import { generateCustomStage, importLevelFromFile } from "./customLevels.js";
@@ -176,9 +176,15 @@ export class Game {
         this.ui.showHostLobby(code, true);
       });
     } catch (err) {
-      alert("Kunde inte skapa rum: " + err.message);
+      alert("Kunde inte skapa rum: " + err.message + this._inAppBrowserHint());
       this.ui.showMultiplayerMenu(this.mpServerUrl);
     }
+  }
+
+  _inAppBrowserHint() {
+    return isInAppBrowser()
+      ? "\n\nDu verkar vara i en app-inbyggd webbläsare (Facebook/Messenger/Instagram m.fl.), som ofta blockerar den här typen av anslutning. Öppna sidan i Chrome eller Safari istället (via \"…\"-menyn eller \"Öppna i webbläsare\")."
+      : "";
   }
 
   async _guestJoinRoom({ serverUrl, code }) {
@@ -193,7 +199,7 @@ export class Game {
       this.state = "mp-lobby";
       this.ui.showGuestLobby();
     } catch (err) {
-      alert("Kunde inte ansluta: " + err.message);
+      alert("Kunde inte ansluta: " + err.message + this._inAppBrowserHint());
       this.ui.showMultiplayerMenu(this.mpServerUrl);
     }
   }

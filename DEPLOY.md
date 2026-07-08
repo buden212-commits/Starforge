@@ -125,3 +125,16 @@ Det är den adressen ni ska använda för att spela — både för att öppna sp
   genereras lokalt hos var och en utifrån fönsterhöjden), men det påverkar bara utseendet, inte
   vem som träffas av vad — det är alltid värdens simulering som gäller.
 - Fiender med anpassade sprites (skapade i Fiendedesign) visas med standardutseende hos gästen.
+
+### "Kunde inte ansluta till servern" trots att servern fungerar
+
+Om ni öppnat spelet via en länk delad i **Facebook, Messenger, Instagram** eller liknande
+appar (URL:en innehåller ofta `?fbclid=...`), körs sidan i appens **inbyggda webbläsare**
+(en WebView), inte i er vanliga webbläsare. Dessa inbyggda webbläsare blockerar eller stör
+ofta WebSocket-anslutningar, vilket gör att multiplayer aldrig lyckas ansluta — även om
+servern är vaken och fungerar helt normalt.
+
+**Lösning:** öppna sidan i en riktig webbläsare (Chrome, Safari, Edge) istället för att
+klicka på länken direkt i appen. De flesta appar har en "…"-meny eller knapp längst upp med
+texten "Öppna i webbläsare" eller liknande. Spelet visar numera själv en varning om det
+upptäcker att det körs i en sådan inbyggd webbläsare.
